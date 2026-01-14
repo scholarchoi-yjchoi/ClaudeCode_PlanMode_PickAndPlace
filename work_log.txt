@@ -413,3 +413,30 @@ e13bcb1 Add README.md with project documentation
 - README.md (프로젝트 소개)
 
 ================================================================================
+13. 세션 작업 로그 (2026-01-15 세션 3 - Git 정리)
+================================================================================
+
+[작업] documents 폴더 재구성 및 Git 커밋
+-------------------------------------------------------------------------
+- documents 폴더를 날짜별 서브폴더로 재구성하여 Git에 반영
+- 기존 구조: documents/ 하위에 모든 파일 flat하게 저장
+- 새로운 구조:
+  * documents/260114/: 1월 14일 작업 파일들
+  * documents/260115_1/: 1월 15일 세션 1 작업 파일들
+  * documents/260115_2/: 1월 15일 세션 2 대화 로그
+
+[Git 커밋]
+-------------------------------------------------------------------------
+0e1b097 Reorganize documents folder by date
+  - documents/260114_* → documents/260114/260114_*
+  - documents/260115_* → documents/260115_1/260115_*
+  - documents/260115_2/ 신규 추가 (세션 2 대화 로그)
+
+[Git 커밋 이력 (전체)]
+-------------------------------------------------------------------------
+0e1b097 Reorganize documents folder by date
+750e54a Update work_log.txt with session 12 documentation
+e13bcb1 Add README.md with project documentation
+58b14df Initial commit: Isaac Sim 4.5 Pick and Place Project
+
+================================================================================
