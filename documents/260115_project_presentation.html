@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Isaac Sim 4.5 Pick and Place Project</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #fff;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            text-align: center;
+            padding: 40px 0;
+            background: rgba(0,0,0,0.3);
+            border-radius: 20px;
+            margin-bottom: 30px;
+        }
+
+        h1 {
+            font-size: 2.5em;
+            background: linear-gradient(90deg, #00d4ff, #7b2cbf);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #888;
+            font-size: 1.2em;
+        }
+
+        .badge {
+            display: inline-block;
+            background: linear-gradient(90deg, #00c853, #69f0ae);
+            color: #000;
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-weight: bold;
+            margin-top: 15px;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+        }
+
+        @media (max-width: 1000px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .section {
+            background: rgba(255,255,255,0.05);
+            border-radius: 15px;
+            padding: 25px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .section h2 {
+            color: #00d4ff;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .section h2::before {
+            content: '';
+            display: inline-block;
+            width: 4px;
+            height: 24px;
+            background: linear-gradient(180deg, #00d4ff, #7b2cbf);
+            border-radius: 2px;
+        }
+
+        /* 3D Viewer */
+        #canvas-container {
+            width: 100%;
+            height: 400px;
+            border-radius: 10px;
+            overflow: hidden;
+            position: relative;
+            background: #0a0a15;
+        }
+
+        .animation-controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(90deg, #00d4ff, #0099cc);
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0,212,255,0.4);
+        }
+
+        .btn-secondary {
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .phase-indicator {
+            background: rgba(0,0,0,0.5);
+            padding: 10px 20px;
+            border-radius: 8px;
+            margin-top: 15px;
+            font-family: monospace;
+        }
+
+        .phase-indicator .phase-name {
+            color: #69f0ae;
+            font-weight: bold;
+        }
+
+        /* Timeline */
+        .timeline {
+            position: relative;
+            padding-left: 30px;
+        }
+
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 8px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: linear-gradient(180deg, #ff6b6b, #ffd93d, #69f0ae);
+        }
+
+        .timeline-item {
+            position: relative;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 10px;
+            border-left: 3px solid;
+        }
+
+        .timeline-item.problem {
+            border-color: #ff6b6b;
+        }
+
+        .timeline-item.solution {
+            border-color: #69f0ae;
+        }
+
+        .timeline-item.discovery {
+            border-color: #ffd93d;
+        }
+
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -26px;
+            top: 20px;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #fff;
+        }
+
+        .timeline-item h3 {
+            font-size: 1em;
+            margin-bottom: 8px;
+        }
+
+        .timeline-item p {
+            font-size: 0.9em;
+            color: #aaa;
+        }
+
+        /* Stats */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .stat-card {
+            background: rgba(0,0,0,0.3);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 2em;
+            font-weight: bold;
+            background: linear-gradient(90deg, #00d4ff, #69f0ae);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .stat-label {
+            color: #888;
+            font-size: 0.85em;
+            margin-top: 5px;
+        }
+
+        /* Phases */
+        .phases-list {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+
+        .phase-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 8px;
+            font-size: 0.9em;
+        }
+
+        .phase-num {
+            width: 28px;
+            height: 28px;
+            background: linear-gradient(135deg, #7b2cbf, #00d4ff);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 0.8em;
+        }
+
+        /* Code Block */
+        .code-block {
+            background: #0d1117;
+            border-radius: 10px;
+            padding: 20px;
+            overflow-x: auto;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.85em;
+            line-height: 1.6;
+            border: 1px solid #30363d;
+        }
+
+        .code-block .comment {
+            color: #8b949e;
+        }
+
+        .code-block .keyword {
+            color: #ff7b72;
+        }
+
+        .code-block .function {
+            color: #d2a8ff;
+        }
+
+        .code-block .string {
+            color: #a5d6ff;
+        }
+
+        .code-block .number {
+            color: #79c0ff;
+        }
+
+        /* Full width sections */
+        .full-width {
+            grid-column: 1 / -1;
+        }
+
+        /* Key Findings */
+        .findings-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+        }
+
+        @media (max-width: 800px) {
+            .findings-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .finding-card {
+            background: rgba(0,0,0,0.4);
+            padding: 20px;
+            border-radius: 10px;
+            border-top: 3px solid;
+        }
+
+        .finding-card.warning {
+            border-color: #ffd93d;
+        }
+
+        .finding-card.info {
+            border-color: #00d4ff;
+        }
+
+        .finding-card.success {
+            border-color: #69f0ae;
+        }
+
+        .finding-card h4 {
+            margin-bottom: 10px;
+        }
+
+        .finding-card p {
+            color: #aaa;
+            font-size: 0.9em;
+        }
+
+        /* Test Progress */
+        .progress-bar {
+            height: 30px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 15px;
+            overflow: hidden;
+            margin: 20px 0;
+            position: relative;
+        }
+
+        .progress-fill {
+            height: 100%;
+            display: flex;
+        }
+
+        .progress-segment {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75em;
+            font-weight: bold;
+        }
+
+        .progress-failed {
+            width: 96%;
+            background: linear-gradient(90deg, #ff6b6b, #ff8e8e);
+            color: #000;
+        }
+
+        .progress-success {
+            width: 4%;
+            background: linear-gradient(90deg, #69f0ae, #00c853);
+            color: #000;
+        }
+
+        footer {
+            text-align: center;
+            padding: 30px;
+            margin-top: 30px;
+            color: #666;
+        }
+
+        /* Animation for elements */
+        .animate-in {
+            animation: fadeInUp 0.6s ease forwards;
+            opacity: 0;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .delay-1 { animation-delay: 0.1s; }
+        .delay-2 { animation-delay: 0.2s; }
+        .delay-3 { animation-delay: 0.3s; }
+        .delay-4 { animation-delay: 0.4s; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="animate-in">
+            <h1>Isaac Sim 4.5 Pick and Place</h1>
+            <p class="subtitle">Franka Panda Robot Manipulation Demo</p>
+            <span class="badge">26th Test Success - 7.1mm Accuracy</span>
+        </header>
+
+        <div class="main-content">
+            <!-- 3D Animation Section -->
+            <div class="section animate-in delay-1">
+                <h2>3D Pick and Place Animation</h2>
+                <div id="canvas-container"></div>
+                <div class="animation-controls">
+                    <button class="btn btn-primary" onclick="startAnimation()">Play Animation</button>
+                    <button class="btn btn-secondary" onclick="resetAnimation()">Reset</button>
+                    <button class="btn btn-secondary" onclick="toggleAutoRotate()">Toggle Rotate</button>
+                </div>
+                <div class="phase-indicator">
+                    <span>Current Phase: </span>
+                    <span class="phase-name" id="current-phase">Ready</span>
+                </div>
+            </div>
+
+            <!-- Project Overview -->
+            <div class="section animate-in delay-2">
+                <h2>Project Overview</h2>
+                <p style="color: #aaa; line-height: 1.8; margin-bottom: 20px;">
+                    Isaac Sim 4.5 환경에서 Franka Panda 로봇이 DynamicCuboid 객체를 집어서
+                    컨테이너에 놓는 Pick and Place 데모 구현 프로젝트입니다.
+                </p>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value">26</div>
+                        <div class="stat-label">Total Tests</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">7.1mm</div>
+                        <div class="stat-label">Final Accuracy</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">10</div>
+                        <div class="stat-label">Motion Phases</div>
+                    </div>
+                </div>
+
+                <h3 style="margin-top: 25px; margin-bottom: 15px; color: #69f0ae;">Test Progress</h3>
+                <div class="progress-bar">
+                    <div class="progress-fill">
+                        <div class="progress-segment progress-failed">Tests 1-25: Failed</div>
+                        <div class="progress-segment progress-success">26</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Problem Timeline -->
+            <div class="section animate-in delay-3">
+                <h2>Problem Solving Journey</h2>
+                <div class="timeline">
+                    <div class="timeline-item problem">
+                        <h3>Problem 1: Wrong Position</h3>
+                        <p>EE moved 0.54m away - Object outside robot workspace</p>
+                    </div>
+                    <div class="timeline-item problem">
+                        <h3>Problem 2: Z Height Too High</h3>
+                        <p>Robot couldn't reach low enough for the object</p>
+                    </div>
+                    <div class="timeline-item problem">
+                        <h3>Problem 3: Grip Failed</h3>
+                        <p>YCB object missing physics properties</p>
+                    </div>
+                    <div class="timeline-item discovery">
+                        <h3>Discovery: RMPFlow Conflict</h3>
+                        <p>Table interfered with motion planning</p>
+                    </div>
+                    <div class="timeline-item problem">
+                        <h3>Problem 6: Robot Pushed Cube</h3>
+                        <p>Gripper not initialized properly</p>
+                    </div>
+                    <div class="timeline-item solution">
+                        <h3>Solution: Gripper Init!</h3>
+                        <p>set_default_state() before reset()</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pick and Place Phases -->
+            <div class="section animate-in delay-4">
+                <h2>10 Motion Phases</h2>
+                <div class="phases-list">
+                    <div class="phase-item"><span class="phase-num">0</span> Moving above pick</div>
+                    <div class="phase-item"><span class="phase-num">1</span> Lowering to grasp</div>
+                    <div class="phase-item"><span class="phase-num">2</span> Waiting settle</div>
+                    <div class="phase-item"><span class="phase-num">3</span> Closing gripper</div>
+                    <div class="phase-item"><span class="phase-num">4</span> Lifting object</div>
+                    <div class="phase-item"><span class="phase-num">5</span> Moving to place XY</div>
+                    <div class="phase-item"><span class="phase-num">6</span> Lowering to place</div>
+                    <div class="phase-item"><span class="phase-num">7</span> Opening gripper</div>
+                    <div class="phase-item"><span class="phase-num">8</span> Lifting up</div>
+                    <div class="phase-item"><span class="phase-num">9</span> Going home</div>
+                </div>
+            </div>
+
+            <!-- Key Findings -->
+            <div class="section full-width animate-in delay-4">
+                <h2>Key Findings</h2>
+                <div class="findings-grid">
+                    <div class="finding-card warning">
+                        <h4>RMPFlow & Table Conflict</h4>
+                        <p>Table acts as obstacle, causing RMPFlow to generate wrong paths. Solution: Remove table, use GroundPlane only.</p>
+                    </div>
+                    <div class="finding-card info">
+                        <h4>Robot Reach Limits</h4>
+                        <p>EE minimum height: z = 0.287m. Object center must be at z~0.27 for gripper to reach.</p>
+                    </div>
+                    <div class="finding-card success">
+                        <h4>Gripper Initialization</h4>
+                        <p>Critical fix: Call gripper.set_default_state() before world.reset(). This was the key to success!</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Key Code -->
+            <div class="section full-width animate-in delay-4">
+                <h2>Key Solution Code</h2>
+                <div class="code-block">
+<span class="comment"># 1. Use GroundPlane only (no table - prevents RMPFlow interference)</span>
+GroundPlane(<span class="string">prim_path="/World/GroundPlane"</span>, z_position=<span class="number">0</span>)
+
+<span class="comment"># 2. DynamicCuboid at official example position</span>
+cube = <span class="function">DynamicCuboid</span>(
+    prim_path=<span class="string">"/World/PickCube"</span>,
+    position=np.array([<span class="number">0.3</span>, <span class="number">0.3</span>, <span class="number">0.3</span>]),
+    scale=np.array([<span class="number">0.0515</span>, <span class="number">0.0515</span>, <span class="number">0.0515</span>]),
+)
+
+<span class="comment"># 3. CRITICAL: Gripper initialization before reset!</span>
+my_franka.gripper.<span class="function">set_default_state</span>(my_franka.gripper.joint_opened_positions)
+my_world.<span class="function">reset</span>()
+
+<span class="comment"># 4. Wait for physics settle, then get actual position</span>
+<span class="keyword">for</span> i <span class="keyword">in</span> <span class="function">range</span>(<span class="number">50</span>):
+    my_world.<span class="function">step</span>(render=<span class="keyword">False</span>)
+object_position = cube.<span class="function">get_local_pose</span>()[<span class="number">0</span>]
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <p>Isaac Sim 4.5 Pick and Place Project | 2026-01-14 ~ 2026-01-15</p>
+            <p style="margin-top: 10px; font-size: 0.9em;">Final Result: Distance to target = 0.0071m (7.1mm)</p>
+        </footer>
+    </div>
+
+    <script>
+        // Three.js 3D Animation
+        let scene, camera, renderer, robot, cube, container, gripper;
+        let animationPhase = -1;
+        let animationProgress = 0;
+        let isAnimating = false;
+        let autoRotate = true;
+
+        // Positions
+        const PICK_POS = { x: 0.3, y: 0.3, z: 0.3 };
+        const PLACE_POS = { x: 0.3, y: -0.3, z: 0.1 };
+        const HOME_POS = { x: 0, y: 0, z: 0.5 };
+
+        const phaseNames = [
+            "Phase 0: Moving above pick",
+            "Phase 1: Lowering to grasp",
+            "Phase 2: Waiting settle",
+            "Phase 3: Closing gripper",
+            "Phase 4: Lifting object",
+            "Phase 5: Moving to place XY",
+            "Phase 6: Lowering to place",
+            "Phase 7: Opening gripper",
+            "Phase 8: Lifting up",
+            "Phase 9: Going home"
+        ];
+
+        function init() {
+            const container3d = document.getElementById('canvas-container');
+            const width = container3d.clientWidth;
+            const height = container3d.clientHeight;
+
+            // Scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0a0a15);
+
+            // Camera
+            camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 1000);
+            camera.position.set(1.2, 1.2, 1.2);
+            camera.lookAt(0.3, 0, 0.2);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(width, height);
+            renderer.shadowMap.enabled = true;
+            container3d.appendChild(renderer.domElement);
+
+            // Lights
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.5);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(5, 10, 5);
+            directionalLight.castShadow = true;
+            scene.add(directionalLight);
+
+            const pointLight = new THREE.PointLight(0x00d4ff, 0.5, 10);
+            pointLight.position.set(0, 2, 0);
+            scene.add(pointLight);
+
+            // Ground plane
+            const groundGeometry = new THREE.PlaneGeometry(3, 3);
+            const groundMaterial = new THREE.MeshStandardMaterial({
+                color: 0x1a1a2e,
+                roughness: 0.8
+            });
+            const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+
+            // Grid
+            const gridHelper = new THREE.GridHelper(3, 30, 0x444444, 0x222222);
+            scene.add(gridHelper);
+
+            // Robot base
+            const baseGeometry = new THREE.CylinderGeometry(0.08, 0.1, 0.05, 32);
+            const baseMaterial = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.8 });
+            const base = new THREE.Mesh(baseGeometry, baseMaterial);
+            base.position.set(0, 0.025, 0);
+            base.castShadow = true;
+            scene.add(base);
+
+            // Robot arm (simplified)
+            robot = new THREE.Group();
+
+            // Arm segment 1
+            const arm1Geometry = new THREE.BoxGeometry(0.06, 0.3, 0.06);
+            const armMaterial = new THREE.MeshStandardMaterial({ color: 0xf5f5f5, metalness: 0.3 });
+            const arm1 = new THREE.Mesh(arm1Geometry, armMaterial);
+            arm1.position.set(0, 0.15, 0);
+            arm1.castShadow = true;
+            robot.add(arm1);
+
+            // Joint 1
+            const joint1Geometry = new THREE.SphereGeometry(0.04, 16, 16);
+            const jointMaterial = new THREE.MeshStandardMaterial({ color: 0xff6b35, metalness: 0.5 });
+            const joint1 = new THREE.Mesh(joint1Geometry, jointMaterial);
+            joint1.position.set(0, 0.3, 0);
+            robot.add(joint1);
+
+            // Arm segment 2
+            const arm2 = new THREE.Mesh(arm1Geometry, armMaterial);
+            arm2.position.set(0.15, 0.3, 0);
+            arm2.rotation.z = Math.PI / 2;
+            arm2.castShadow = true;
+            robot.add(arm2);
+
+            // Joint 2
+            const joint2 = new THREE.Mesh(joint1Geometry, jointMaterial);
+            joint2.position.set(0.3, 0.3, 0);
+            robot.add(joint2);
+
+            // End effector / Gripper
+            gripper = new THREE.Group();
+
+            const gripperBase = new THREE.Mesh(
+                new THREE.BoxGeometry(0.06, 0.08, 0.04),
+                new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.7 })
+            );
+            gripper.add(gripperBase);
+
+            const fingerGeometry = new THREE.BoxGeometry(0.01, 0.06, 0.02);
+            const fingerMaterial = new THREE.MeshStandardMaterial({ color: 0x666666 });
+
+            const leftFinger = new THREE.Mesh(fingerGeometry, fingerMaterial);
+            leftFinger.position.set(-0.025, -0.05, 0);
+            leftFinger.name = 'leftFinger';
+            gripper.add(leftFinger);
+
+            const rightFinger = new THREE.Mesh(fingerGeometry, fingerMaterial);
+            rightFinger.position.set(0.025, -0.05, 0);
+            rightFinger.name = 'rightFinger';
+            gripper.add(rightFinger);
+
+            gripper.position.set(0.3, 0.22, 0);
+            robot.add(gripper);
+
+            robot.position.set(0, 0.05, 0);
+            scene.add(robot);
+
+            // Cube (pick object)
+            const cubeGeometry = new THREE.BoxGeometry(0.05, 0.05, 0.05);
+            const cubeMaterial = new THREE.MeshStandardMaterial({
+                color: 0x0066ff,
+                metalness: 0.3,
+                roughness: 0.5
+            });
+            cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
+            cube.position.set(PICK_POS.x, PICK_POS.z, PICK_POS.y);
+            cube.castShadow = true;
+            scene.add(cube);
+
+            // Container
+            container = new THREE.Group();
+            const containerMaterial = new THREE.MeshStandardMaterial({
+                color: 0x4a5568,
+                transparent: true,
+                opacity: 0.8
+            });
+
+            // Container bottom
+            const bottomGeometry = new THREE.BoxGeometry(0.12, 0.01, 0.12);
+            const bottom = new THREE.Mesh(bottomGeometry, containerMaterial);
+            bottom.position.set(0, 0.005, 0);
+            container.add(bottom);
+
+            // Container walls
+            const wallGeometry = new THREE.BoxGeometry(0.12, 0.05, 0.01);
+            const frontWall = new THREE.Mesh(wallGeometry, containerMaterial);
+            frontWall.position.set(0, 0.035, 0.055);
+            container.add(frontWall);
+
+            const backWall = new THREE.Mesh(wallGeometry, containerMaterial);
+            backWall.position.set(0, 0.035, -0.055);
+            container.add(backWall);
+
+            const sideWallGeometry = new THREE.BoxGeometry(0.01, 0.05, 0.12);
+            const leftWall = new THREE.Mesh(sideWallGeometry, containerMaterial);
+            leftWall.position.set(-0.055, 0.035, 0);
+            container.add(leftWall);
+
+            const rightWall = new THREE.Mesh(sideWallGeometry, containerMaterial);
+            rightWall.position.set(0.055, 0.035, 0);
+            container.add(rightWall);
+
+            container.position.set(PLACE_POS.x, 0, PLACE_POS.y);
+            scene.add(container);
+
+            // Axes helper
+            const axesHelper = new THREE.AxesHelper(0.2);
+            axesHelper.position.set(-0.3, 0.01, -0.3);
+            scene.add(axesHelper);
+
+            // Labels (pick/place positions)
+            createLabel('PICK', PICK_POS.x, PICK_POS.z + 0.1, PICK_POS.y);
+            createLabel('PLACE', PLACE_POS.x, 0.15, PLACE_POS.y);
+
+            animate();
+        }
+
+        function createLabel(text, x, y, z) {
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.width = 128;
+            canvas.height = 64;
+
+            context.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            context.fillRect(0, 0, canvas.width, canvas.height);
+
+            context.font = 'bold 24px Arial';
+            context.fillStyle = '#00d4ff';
+            context.textAlign = 'center';
+            context.fillText(text, 64, 40);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            const material = new THREE.SpriteMaterial({ map: texture });
+            const sprite = new THREE.Sprite(material);
+            sprite.position.set(x, y, z);
+            sprite.scale.set(0.2, 0.1, 1);
+            scene.add(sprite);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (autoRotate && !isAnimating) {
+                camera.position.x = 1.2 * Math.cos(Date.now() * 0.0003);
+                camera.position.z = 1.2 * Math.sin(Date.now() * 0.0003);
+                camera.lookAt(0.3, 0.2, 0);
+            }
+
+            if (isAnimating) {
+                updateAnimation();
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function updateAnimation() {
+            animationProgress += 0.008;
+
+            const leftFinger = gripper.children.find(c => c.name === 'leftFinger');
+            const rightFinger = gripper.children.find(c => c.name === 'rightFinger');
+
+            if (animationProgress >= 1) {
+                animationProgress = 0;
+                animationPhase++;
+
+                if (animationPhase >= 10) {
+                    isAnimating = false;
+                    animationPhase = -1;
+                    document.getElementById('current-phase').textContent = 'Complete!';
+                    return;
+                }
+
+                document.getElementById('current-phase').textContent = phaseNames[animationPhase];
+            }
+
+            const t = animationProgress;
+            const smoothT = t * t * (3 - 2 * t); // Smooth step
+
+            switch(animationPhase) {
+                case 0: // Move above pick
+                    gripper.position.x = lerp(HOME_POS.x + 0.3, PICK_POS.x, smoothT);
+                    gripper.position.y = lerp(HOME_POS.z + 0.22, PICK_POS.z + 0.15, smoothT);
+                    gripper.position.z = lerp(HOME_POS.y, PICK_POS.y, smoothT);
+                    break;
+
+                case 1: // Lower to grasp
+                    gripper.position.y = lerp(PICK_POS.z + 0.15, PICK_POS.z + 0.04, smoothT);
+                    break;
+
+                case 2: // Wait settle
+                    break;
+
+                case 3: // Close gripper
+                    if (leftFinger && rightFinger) {
+                        leftFinger.position.x = lerp(-0.025, -0.015, smoothT);
+                        rightFinger.position.x = lerp(0.025, 0.015, smoothT);
+                    }
+                    break;
+
+                case 4: // Lift object
+                    gripper.position.y = lerp(PICK_POS.z + 0.04, PICK_POS.z + 0.2, smoothT);
+                    cube.position.y = lerp(PICK_POS.z, PICK_POS.z + 0.16, smoothT);
+                    break;
+
+                case 5: // Move to place XY
+                    gripper.position.z = lerp(PICK_POS.y, PLACE_POS.y, smoothT);
+                    cube.position.z = lerp(PICK_POS.y, PLACE_POS.y, smoothT);
+                    break;
+
+                case 6: // Lower to place
+                    gripper.position.y = lerp(PICK_POS.z + 0.2, PLACE_POS.z + 0.08, smoothT);
+                    cube.position.y = lerp(PICK_POS.z + 0.16, PLACE_POS.z + 0.04, smoothT);
+                    break;
+
+                case 7: // Open gripper
+                    if (leftFinger && rightFinger) {
+                        leftFinger.position.x = lerp(-0.015, -0.025, smoothT);
+                        rightFinger.position.x = lerp(0.015, 0.025, smoothT);
+                    }
+                    if (t > 0.5) {
+                        cube.position.y = lerp(PLACE_POS.z + 0.04, 0.025, (t - 0.5) * 2);
+                    }
+                    break;
+
+                case 8: // Lift up
+                    gripper.position.y = lerp(PLACE_POS.z + 0.08, PLACE_POS.z + 0.25, smoothT);
+                    break;
+
+                case 9: // Go home
+                    gripper.position.x = lerp(PLACE_POS.x, HOME_POS.x + 0.3, smoothT);
+                    gripper.position.y = lerp(PLACE_POS.z + 0.25, HOME_POS.z + 0.22, smoothT);
+                    gripper.position.z = lerp(PLACE_POS.y, HOME_POS.y, smoothT);
+                    break;
+            }
+        }
+
+        function lerp(a, b, t) {
+            return a + (b - a) * t;
+        }
+
+        function startAnimation() {
+            if (isAnimating) return;
+
+            resetAnimation();
+            isAnimating = true;
+            animationPhase = 0;
+            animationProgress = 0;
+            autoRotate = false;
+
+            camera.position.set(1.0, 0.8, 1.0);
+            camera.lookAt(0.3, 0.2, 0);
+
+            document.getElementById('current-phase').textContent = phaseNames[0];
+        }
+
+        function resetAnimation() {
+            isAnimating = false;
+            animationPhase = -1;
+            animationProgress = 0;
+
+            // Reset positions
+            gripper.position.set(0.3, 0.22, 0);
+            cube.position.set(PICK_POS.x, PICK_POS.z, PICK_POS.y);
+
+            // Reset gripper fingers
+            const leftFinger = gripper.children.find(c => c.name === 'leftFinger');
+            const rightFinger = gripper.children.find(c => c.name === 'rightFinger');
+            if (leftFinger && rightFinger) {
+                leftFinger.position.x = -0.025;
+                rightFinger.position.x = 0.025;
+            }
+
+            document.getElementById('current-phase').textContent = 'Ready';
+        }
+
+        function toggleAutoRotate() {
+            autoRotate = !autoRotate;
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            const container3d = document.getElementById('canvas-container');
+            const width = container3d.clientWidth;
+            const height = container3d.clientHeight;
+
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+            renderer.setSize(width, height);
+        });
+
+        // Initialize on load
+        window.onload = init;
+    </script>
+</body>
+</html>
