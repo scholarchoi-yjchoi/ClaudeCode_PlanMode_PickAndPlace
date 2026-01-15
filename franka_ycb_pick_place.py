@@ -39,7 +39,7 @@ import carb
 import carb.input
 import omni.usd
 import omni.appwindow
-from pxr import UsdLux, UsdGeom
+from pxr import UsdLux, UsdGeom, Gf
 from isaacsim.core.api import World
 from isaacsim.core.api.objects import FixedCuboid, DynamicCuboid
 from isaacsim.core.api.objects.ground_plane import GroundPlane
@@ -62,11 +62,51 @@ from isaacsim.core.prims import SingleXFormPrim
 ROBOT_POSITION = np.array([0.0, 0.0, 0.0])
 ROBOT_ORIENTATION = np.array([1.0, 0.0, 0.0, 0.0])  # wxyz quaternion
 
-# Pick object configuration (matching official example)
-# DynamicCuboid at [0.3, 0.3, 0.3] - known working position
+# YCB Object Configurations
+# Key: 1, 2, 3 for keyboard selection
+YCB_OBJECT_CONFIGS = {
+    "010_potted_meat_can": {
+        "key": "1",
+        "usd_file": "010_potted_meat_can.usd",
+        "display_name": "Potted Meat Can",
+        "mass": 0.37,
+        "pick_height_offset": 0.0,  # No offset needed, pick at object center
+        "spawn_height": 0.10,  # Spawn low, will settle on ground
+        "spawn_xy": np.array([0.3, 0.3]),
+    },
+    "011_banana": {
+        "key": "2",
+        "usd_file": "011_banana.usd",
+        "display_name": "Banana",
+        "mass": 0.12,
+        "pick_height_offset": 0.0,
+        "spawn_height": 0.10,
+        "spawn_xy": np.array([0.3, 0.3]),
+    },
+    "040_large_marker": {
+        "key": "3",
+        "usd_file": "040_large_marker.usd",
+        "display_name": "Large Marker",
+        "mass": 0.02,
+        "pick_height_offset": 0.0,
+        "spawn_height": 0.10,
+        "spawn_xy": np.array([0.3, 0.3]),
+    },
+}
+
+# Default object selection (None = use DynamicCuboid, or YCB object name)
+# YCB objects have physics instability issues - use DynamicCuboid by default
+SELECTED_YCB_OBJECT = "010_potted_meat_can"  # YCB object to use when enabled
+USE_YCB_OBJECTS = False  # Master switch for YCB objects (disabled due to physics issues)
+
+# Legacy DynamicCuboid configuration (kept for fallback)
 OBJECT_POSITION = np.array([0.3, 0.3, 0.3])
 OBJECT_SCALE = np.array([0.0515, 0.0515, 0.0515])  # ~5cm cube
 OBJECT_COLOR = np.array([0, 0, 1])  # Blue
+
+# Support platform configuration (for YCB objects)
+SUPPORT_PLATFORM_HEIGHT = 0.28  # EE reachable height (slightly higher)
+SUPPORT_PLATFORM_SIZE = 0.20    # 20cm x 20cm (larger for stability)
 
 # Container configuration (low, won't interfere with robot)
 CONTAINER_POSITION = np.array([0.3, -0.3, 0.02])
@@ -125,6 +165,8 @@ class SimulationController:
 
     def __init__(self):
         self.start_requested = False
+        self.object_change_requested = None  # Stores new object name when 1,2,3 pressed
+        self.reset_requested = False
         self._setup_keyboard()
 
     def _setup_keyboard(self):
@@ -137,15 +179,30 @@ class SimulationController:
                 keyboard, self._on_keyboard_event
             )
             print("[INFO] Keyboard controller initialized")
+            print("[INFO] Keys: S=Start, R=Reset, 1=PottedMeatCan, 2=Banana, 3=LargeMarker")
         except Exception as e:
             carb.log_warn(f"Could not setup keyboard: {e}")
 
     def _on_keyboard_event(self, event, *args, **kwargs) -> bool:
         """Handle keyboard events."""
         if event.type == carb.input.KeyboardEventType.KEY_PRESS:
-            if event.input.name == "S":
+            key_name = event.input.name
+
+            if key_name == "S":
                 self.start_requested = True
                 print("\n[INFO] 'S' key pressed - Starting simulation!")
+            elif key_name == "R":
+                self.reset_requested = True
+                print("\n[INFO] 'R' key pressed - Reset requested!")
+            elif key_name == "1":
+                self.object_change_requested = "010_potted_meat_can"
+                print("\n[INFO] '1' key pressed - Selecting Potted Meat Can")
+            elif key_name == "2":
+                self.object_change_requested = "011_banana"
+                print("\n[INFO] '2' key pressed - Selecting Banana")
+            elif key_name == "3":
+                self.object_change_requested = "040_large_marker"
+                print("\n[INFO] '3' key pressed - Selecting Large Marker")
         return True
 
 
@@ -248,8 +305,133 @@ class VerificationTracker:
 # Helper Functions
 # =============================================================================
 
+def apply_physics_to_ycb(prim, mass: float) -> None:
+    """
+    Apply physics properties to a YCB object.
+
+    Args:
+        prim: USD prim to apply physics to
+        mass: Mass in kg
+    """
+    # 1. RigidBody API
+    rigid_body_api = UsdPhysics.RigidBodyAPI.Apply(prim)
+    rigid_body_api.CreateRigidBodyEnabledAttr(True)
+
+    # 2. Collision API
+    collision_api = UsdPhysics.CollisionAPI.Apply(prim)
+    collision_api.CreateCollisionEnabledAttr(True)
+
+    # 3. MeshCollision API - use convexHull for stability
+    mesh_collision_api = UsdPhysics.MeshCollisionAPI.Apply(prim)
+    mesh_collision_api.CreateApproximationAttr().Set("convexHull")
+
+    # 4. Mass API
+    mass_api = UsdPhysics.MassAPI.Apply(prim)
+    mass_api.CreateMassAttr(mass)
+
+    # 5. PhysX settings for stability
+    physx_api = PhysxSchema.PhysxRigidBodyAPI.Apply(prim)
+    physx_api.CreateSleepThresholdAttr(0.001)  # Settle faster
+
+    print(f"[INFO] Applied physics to YCB object (mass={mass}kg, collision=convexHull)")
+
+
+def create_ycb_object(world: World, object_name: str) -> dict:
+    """
+    Create a YCB object with physics properties.
+
+    Args:
+        world: Isaac Sim World instance
+        object_name: Key from YCB_OBJECT_CONFIGS (e.g., "010_potted_meat_can")
+
+    Returns:
+        dict: {"prim_path": str, "position": np.ndarray, "config": dict}
+    """
+    config = YCB_OBJECT_CONFIGS[object_name]
+
+    # Get assets root path
+    assets_root = get_assets_root_path()
+    usd_path = f"{assets_root}/Isaac/Props/YCB/Axis_Aligned/{config['usd_file']}"
+    prim_path = f"/World/YCB_{object_name}"
+
+    # Spawn position
+    spawn_xy = config["spawn_xy"]
+    spawn_height = config["spawn_height"]
+    spawn_position = np.array([spawn_xy[0], spawn_xy[1], spawn_height])
+
+    # Load USD reference
+    print(f"[INFO] Loading YCB object: {config['display_name']}")
+    print(f"[INFO] USD path: {usd_path}")
+    add_reference_to_stage(usd_path=usd_path, prim_path=prim_path)
+
+    # Get the prim and set transform
+    stage = omni.usd.get_context().get_stage()
+    prim = stage.GetPrimAtPath(prim_path)
+
+    if not prim.IsValid():
+        print(f"[ERROR] Failed to load YCB object from {usd_path}")
+        return None
+
+    # Set position using XformOp
+    xform = UsdGeom.Xformable(prim)
+    xform.ClearXformOpOrder()
+    xform.AddTranslateOp().Set(Gf.Vec3d(*spawn_position))
+
+    # Apply physics
+    apply_physics_to_ycb(prim, config["mass"])
+
+    print(f"[INFO] Created YCB object '{config['display_name']}' at {spawn_position}")
+
+    return {
+        "prim_path": prim_path,
+        "position": spawn_position.copy(),
+        "config": config,
+        "object_name": object_name,
+    }
+
+
+def delete_ycb_object(object_name: str) -> bool:
+    """
+    Delete a YCB object from the stage.
+
+    Args:
+        object_name: Key from YCB_OBJECT_CONFIGS
+
+    Returns:
+        bool: True if deleted successfully
+    """
+    prim_path = f"/World/YCB_{object_name}"
+    stage = omni.usd.get_context().get_stage()
+    prim = stage.GetPrimAtPath(prim_path)
+
+    if prim.IsValid():
+        stage.RemovePrim(prim_path)
+        print(f"[INFO] Deleted YCB object at {prim_path}")
+        return True
+    return False
+
+
+def create_support_platform(world: World) -> None:
+    """
+    Create a support platform for YCB objects.
+    Platform at EE reachable height to support objects stably.
+    """
+    # Platform top surface should be just below spawn height
+    platform_z = SUPPORT_PLATFORM_HEIGHT - 0.01  # 1cm below platform height
+    platform = FixedCuboid(
+        prim_path="/World/SupportPlatform",
+        name="support_platform",
+        position=np.array([0.3, 0.3, platform_z]),
+        scale=np.array([SUPPORT_PLATFORM_SIZE, SUPPORT_PLATFORM_SIZE, 0.02]),  # 2cm thick
+        size=1.0,
+        color=np.array([0.4, 0.4, 0.4]),  # Gray
+    )
+    world.scene.add(platform)
+    print(f"[INFO] Created support platform at z={platform_z} (top surface at ~{platform_z + 0.01})")
+
+
 def setup_object(world: World) -> dict:
-    """Create a DynamicCuboid object matching the official example.
+    """Create a DynamicCuboid object matching the official example (legacy fallback).
 
     Returns:
         dict: Object info with prim_path and position
@@ -389,8 +571,20 @@ def main():
     my_world.scene.add(my_franka)
     print(f"[INFO] Franka robot added at {ROBOT_POSITION}")
 
-    # 5. Pick Object (DynamicCuboid - stable, no table needed)
-    object_info = setup_object(my_world)
+    # 5. Pick Object
+    current_object_name = SELECTED_YCB_OBJECT
+
+    if USE_YCB_OBJECTS and current_object_name is not None:
+        # Create YCB object (on ground, no support platform needed)
+        object_info = create_ycb_object(my_world, current_object_name)
+        if object_info is None:
+            print("[WARN] Failed to create YCB object, falling back to DynamicCuboid")
+            object_info = setup_object(my_world)
+            current_object_name = None
+    else:
+        # Use DynamicCuboid (stable, proven to work)
+        object_info = setup_object(my_world)
+        current_object_name = None
 
     # Setup Camera (after all scene objects are created)
     setup_camera()
@@ -453,8 +647,14 @@ def main():
     # Get the object's ACTUAL position after physics settled (not the pre-stored position)
     # This is critical because physics can cause the object to shift slightly
     object_position = verifier.get_object_position().copy()
+    if current_object_name is not None and current_object_name in YCB_OBJECT_CONFIGS:
+        config = YCB_OBJECT_CONFIGS[current_object_name]
+        object_position[2] += config["pick_height_offset"]  # Adjust pick height for YCB object
+        print(f"[DEBUG] Object ACTUAL position after physics: {verifier.get_object_position()}")
+        print(f"[DEBUG] Pick position (with height offset {config['pick_height_offset']}): {object_position}")
+    else:
+        print(f"[DEBUG] Object ACTUAL position after physics: {object_position}")
     verifier.pick_target = object_position  # Update the verifier's pick target too
-    print(f"[DEBUG] Object ACTUAL position after physics: {object_position}")
 
     # Create keyboard controller for 'S' key input
     sim_controller = SimulationController()
@@ -468,14 +668,21 @@ def main():
     print("\n" + "=" * 60)
     print("Simulation ready!")
     print("  - Press 'S' key to start the Pick and Place task")
-    print("  - Or click PLAY button in the Isaac Sim GUI")
-    print("The robot will pick up the cube and place it in the container.")
+    if USE_YCB_OBJECTS:
+        print("  - Press '1' for Potted Meat Can")
+        print("  - Press '2' for Banana")
+        print("  - Press '3' for Large Marker")
+    print("  - Press 'R' to reset")
+    if current_object_name is not None and current_object_name in YCB_OBJECT_CONFIGS:
+        print(f"Current object: {YCB_OBJECT_CONFIGS[current_object_name]['display_name']}")
+    else:
+        print("Current object: DynamicCuboid (Blue Cube)")
     print("=" * 60 + "\n")
 
     # === Main Simulation Loop ===
     while simulation_app.is_running():
         # Step the world (physics + rendering)
-        my_world.step(render=True)
+        my_world.step(render=not IS_HEADLESS)  # Don't render in headless mode
 
         # Handle stop condition
         if my_world.is_stopped() and not reset_needed:
@@ -484,17 +691,65 @@ def main():
 
         # Only process when simulation is playing
         if my_world.is_playing():
+            # Handle reset request from 'R' key
+            if sim_controller.reset_requested:
+                reset_needed = True
+                sim_controller.reset_requested = False
+
+            # Handle YCB object change request (1, 2, 3 keys) - only if YCB is enabled
+            if USE_YCB_OBJECTS and sim_controller.object_change_requested is not None:
+                new_object_name = sim_controller.object_change_requested
+                sim_controller.object_change_requested = None
+
+                if new_object_name != current_object_name:
+                    print(f"\n[INFO] Changing object from {current_object_name} to {new_object_name}")
+
+                    # Delete current object if it's a YCB object
+                    if current_object_name is not None:
+                        delete_ycb_object(current_object_name)
+
+                    # Create new object
+                    current_object_name = new_object_name
+                    object_info = create_ycb_object(my_world, current_object_name)
+
+                    if object_info is None:
+                        print("[ERROR] Failed to create new YCB object, keeping previous")
+                        continue
+
+                    # Reset simulation state
+                    reset_needed = True
+                    print(f"[INFO] Now using: {YCB_OBJECT_CONFIGS[current_object_name]['display_name']}")
+            else:
+                # Clear the request if YCB is disabled
+                sim_controller.object_change_requested = None
+
             # Handle reset
             if reset_needed:
                 my_world.reset()
                 my_controller.reset()
+
+                # Update verifier with new object path
+                verifier.object_xform = SingleXFormPrim(prim_path=object_info["prim_path"])
                 verifier.initialize()  # Re-initialize verifier after reset
                 verifier.last_phase = -1  # Reset phase tracking
+
+                # Re-calculate pick position
+                object_position = verifier.get_object_position().copy()
+                if current_object_name is not None and current_object_name in YCB_OBJECT_CONFIGS:
+                    config = YCB_OBJECT_CONFIGS[current_object_name]
+                    object_position[2] += config["pick_height_offset"]  # Adjust pick height
+                    print(f"[INFO] Simulation reset - Object: {config['display_name']}")
+                else:
+                    print("[INFO] Simulation reset - Object: DynamicCuboid")
+                verifier.pick_target = object_position
+                print(f"[INFO] Pick position: {object_position}")
+
                 reset_needed = False
                 task_completed = False
                 task_started = False
                 step_count = 0
-                print("[INFO] Simulation reset")
+                print(f"[INFO] Simulation reset - Object: {config['display_name']}")
+                print(f"[INFO] Pick position: {object_position}")
 
             # Wait for user to press 'S' or Play button (auto-started in headless mode)
             if not task_started:
