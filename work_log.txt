@@ -440,3 +440,27 @@ e13bcb1 Add README.md with project documentation
 58b14df Initial commit: Isaac Sim 4.5 Pick and Place Project
 
 ================================================================================
+14. 세션 작업 로그 (2026-01-15 세션 4 - GitHub 연동)
+================================================================================
+
+[작업] GitHub repository 생성 및 push
+-------------------------------------------------------------------------
+- gh CLI 설치 안내 (sudo apt install -y gh)
+- gh auth login으로 GitHub 인증 완료
+- gh repo create 명령으로 repository 생성 및 push
+
+[GitHub Repository]
+-------------------------------------------------------------------------
+URL: https://github.com/scholarchoi-yjchoi/ClaudeCode_PlanMode_PickAndPlace
+Visibility: Public
+Description: Isaac Sim 4.5 Pick and Place Demo with Franka Panda Robot
+
+[Git 커밋 이력 (업데이트)]
+-------------------------------------------------------------------------
+a262eb0 Update work_log.txt with session 13 documentation
+0e1b097 Reorganize documents folder by date
+750e54a Update work_log.txt with session 12 documentation
+e13bcb1 Add README.md with project documentation
+58b14df Initial commit: Isaac Sim 4.5 Pick and Place Project
+
+================================================================================
