@@ -530,3 +530,196 @@ e13bcb1 Add README.md with project documentation
 - [ ] 각 YCB 객체별 최적 그립 전략 구현
 
 ================================================================================
+16. 세션 작업 로그 (2026-01-15 세션 6 - YCB Physics 심층 디버깅)
+================================================================================
+
+[목표]
+-------------------------------------------------------------------------
+YCB 객체의 physics 불안정성 해결 - 로봇 접근 시 객체가 튀어나가는 문제
+
+[문제 원인 분석]
+-------------------------------------------------------------------------
+1. YCB USD 파일 구조 문제
+   - Root prim: /World/YCB_010_potted_meat_can (RigidBody만 적용됨)
+   - Child prim: /World/YCB_010_potted_meat_can/_10_potted_meat_can (Mesh 위치)
+   - Collision이 실제 mesh가 아닌 root prim에만 적용되어 충돌 감지 불가
+
+2. Mesh naming pattern 발견
+   - 010_potted_meat_can → _10_potted_meat_can (앞 0 제거, underscore 추가)
+   - 005_tomato_soup_can → _05_tomato_soup_can (한자리수는 0 유지)
+   - 011_banana → _11_banana
+
+[테스트한 Collision Approximation 방식]
+-------------------------------------------------------------------------
+| 방식 | 결과 |
+|------|------|
+| convexHull (child mesh) | 객체 3.57m 이동 - 불안정 |
+| convexDecomposition (root) | 객체 0.3mm 이동 - 안정, 그리퍼 못 도달 |
+| boundingCube (root) | 객체 안정, 그리퍼 못 도달 |
+| boundingSphere (root) | 객체 부유 (z=0.06m), 그리퍼 못 도달 |
+| meshSimplification (root) | 객체 안정, 그리퍼 못 도달 |
+| none/triangle mesh (root) | 객체 추락 (z=-1280m) |
+
+[핵심 발견 - RMPFlow Collision Avoidance]
+-------------------------------------------------------------------------
+문제의 본질: Physics가 아닌 Motion Planning의 collision avoidance
+
+비교 테스트 (PHASE 4 Gripper Z 위치):
+- DynamicCuboid: z=0.093m (목표 0.10m) → 성공적 그립
+- YCB convexDecomposition: z=0.193m (목표 0.134m) → 도달 못함
+- 차이: ~6cm collision avoidance margin
+
+원인:
+- RMPFlow가 scene의 collision geometry를 장애물로 인식
+- YCB의 불규칙한 collision shape이 더 큰 avoidance margin 생성
+- DynamicCuboid의 단순한 box shape은 정확한 접근 허용
+
+[객체 변경]
+-------------------------------------------------------------------------
+기존 YCB 객체:
+- 010_potted_meat_can
+- 011_banana
+- 040_large_marker
+
+변경된 YCB 객체 (더 작고 단순한 형태):
+- 005_tomato_soup_can (mesh: _05_tomato_soup_can)
+- 006_mustard_bottle (mesh: _06_mustard_bottle)
+- 061_foam_brick (mesh: _61_foam_brick)
+
+[구현된 함수들]
+-------------------------------------------------------------------------
+1. _remove_existing_physics(prim_path)
+   - 기존 physics 속성 완전 제거
+   - UsdPhysics.RigidBodyAPI, CollisionAPI, MassAPI 제거
+   - PhysxSchema 속성 제거
+
+2. _apply_physics_minimal(prim_path, mass)
+   - Root prim에 RigidBody, Mass, Collision 적용
+   - convexDecomposition approximation 사용
+
+3. 업데이트된 YCB_OBJECT_CONFIGS
+   - mesh_name 필드 추가
+   - pick_height_offset, spawn_height 조정
+
+[테스트 결과 요약]
+-------------------------------------------------------------------------
+YCB Physics 안정성: ✓ 성공 (0.3mm ~ 9mm 이동)
+Gripper 도달 가능성: ✗ 실패 (6cm margin으로 도달 못함)
+
+최종 상태:
+- 객체 물리 안정성은 해결됨
+- RMPFlow collision avoidance가 gripper 접근을 차단
+- 근본적 해결을 위해서는 RMPFlow 설정 변경 또는 다른 접근 필요
+
+[향후 해결 방안 제안]
+-------------------------------------------------------------------------
+1. RMPFlow 설정 조정
+   - collision_sphere_buffer 축소
+   - self_collision_avoidance_distance 조정
+
+2. 지지대 플랫폼 방식
+   - YCB를 높은 플랫폼 위에 배치
+   - 플랫폼만 collision 적용, YCB는 collision 제외
+
+3. 다른 Motion Planner 사용
+   - CUROBO planner 검토
+   - Direct IK solver 검토
+
+4. YCB collision 제외
+   - world.scene에 추가하지 않음 (현재 구현)
+   - RMPFlow가 인식하지 못하도록 처리
+   - 단, 이 경우에도 gripper 도달 제한 존재
+
+[코드 현재 상태]
+-------------------------------------------------------------------------
+- franka_ycb_pick_place.py에 YCB 지원 코드 완전 구현
+- USE_YCB_OBJECTS = True 시 YCB 사용
+- YCB physics는 안정적이나 gripper 도달 문제 미해결
+- DynamicCuboid 사용 시 완벽 작동 (7.1mm 정확도)
+
+================================================================================
+17. 세션 작업 로그 (2026-01-16 세션 7 - YCB 성공! Collision Proxy 패턴)
+================================================================================
+
+[목표]
+-------------------------------------------------------------------------
+YCB 객체의 RMPFlow collision avoidance 문제 해결 - gripper가 객체에 도달하지 못하는 문제
+
+[핵심 문제 분석]
+-------------------------------------------------------------------------
+- DynamicCuboid: gripper z=0.093m 도달 → 성공 (7.1mm 정확도)
+- YCB 객체: gripper z=0.14m에서 정지 → 실패 (6cm 높은 위치)
+- 원인: RMPFlow collision avoidance가 YCB의 복잡한 collision shape을 회피
+
+[해결책: Collision Proxy 패턴]
+-------------------------------------------------------------------------
+YCB 객체의 복잡한 collision mesh 대신, DynamicCuboid를 "collision proxy"로 사용
+
+구현 방법:
+1. 보이지 않는 DynamicCuboid (6cm cube) 생성 - physics/collision 담당
+2. YCB 시각 메시를 proxy의 자식으로 로드 - 시각적 표현만
+3. Proxy cube가 DynamicCuboid와 동일하게 동작하므로 gripper 접근 가능
+4. YCB visual은 proxy와 함께 이동
+
+핵심 코드:
+```python
+def create_ycb_object(world: World, object_name: str) -> dict:
+    # Step 1: 보이지 않는 DynamicCuboid 생성 (collision proxy)
+    proxy_cube = DynamicCuboid(
+        prim_path=f"/World/YCB_Proxy_{object_name}",
+        position=OBJECT_POSITION,  # [0.3, 0.3, 0.3]
+        scale=np.array([0.06, 0.06, 0.06]),  # 6cm cube
+        color=np.array([1, 1, 1]),
+    )
+    world.scene.add(proxy_cube)
+
+    # Proxy cube를 보이지 않게 설정 (physics는 유지)
+    imageable = UsdGeom.Imageable(proxy_prim)
+    imageable.MakeInvisible()
+
+    # Step 2: YCB visual을 proxy의 자식으로 로드 (physics 없음)
+    ycb_prim_path = f"{proxy_prim_path}/YCB_Visual"
+    add_reference_to_stage(usd_path=usd_path, prim_path=ycb_prim_path)
+    # NO physics applied to YCB - visual only
+```
+
+[테스트 결과]
+-------------------------------------------------------------------------
+| 객체 | Phase 4 EE Z | 최종 거리 | 결과 |
+|------|-------------|----------|------|
+| DynamicCuboid | 0.093m | 7.1mm | SUCCESS |
+| Potted Meat Can | 0.096m | 11.1mm | SUCCESS |
+| Tuna Fish Can | 0.096m | 11.1mm | SUCCESS |
+| Foam Brick | 0.096m | 11.1mm | SUCCESS |
+
+모든 YCB 객체가 11.1mm 정확도로 성공!
+
+[핵심 발견]
+-------------------------------------------------------------------------
+1. RMPFlow는 복잡한 mesh collision을 보수적으로 회피
+2. 단순한 box collision (DynamicCuboid)은 정확한 접근 허용
+3. "Collision Proxy" 패턴으로 시각적 표현과 물리 충돌을 분리
+4. YCB visual은 physics 없이 proxy를 따라 이동
+
+[코드 변경 사항]
+-------------------------------------------------------------------------
+파일: franka_ycb_pick_place.py
+1. create_ycb_object() 함수 완전 재작성
+   - DynamicCuboid를 invisible collision proxy로 생성
+   - YCB visual을 proxy의 자식으로 로드
+   - Physics를 YCB에서 제거 (proxy가 담당)
+2. delete_ycb_object() 업데이트
+   - proxy path 기반 삭제로 변경
+3. pick_height_offset 제거
+   - Proxy cube가 DynamicCuboid와 동일하게 동작하므로 불필요
+4. Support platform 비활성화
+   - Proxy가 바닥에 settle하므로 불필요
+
+[결론]
+-------------------------------------------------------------------------
+Collision Proxy 패턴으로 YCB Pick and Place 성공!
+- DynamicCuboid의 안정적인 physics 동작 유지
+- YCB 데이터셋의 다양한 시각적 표현 활용
+- RMPFlow collision avoidance 문제 해결
+
+================================================================================

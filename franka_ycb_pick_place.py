@@ -41,13 +41,13 @@ import omni.usd
 import omni.appwindow
 from pxr import UsdLux, UsdGeom, Gf
 from isaacsim.core.api import World
-from isaacsim.core.api.objects import FixedCuboid, DynamicCuboid
+from isaacsim.core.api.objects import FixedCuboid, DynamicCuboid, VisualSphere
 from isaacsim.core.api.objects.ground_plane import GroundPlane
 from isaacsim.core.utils.stage import add_reference_to_stage
 from isaacsim.core.utils.viewports import set_camera_view
 import isaacsim.core.utils.prims as prim_utils
-from isaacsim.core.prims import RigidPrim
-from pxr import UsdPhysics, PhysxSchema
+from isaacsim.core.prims import RigidPrim, GeometryPrim, SingleRigidPrim
+from pxr import UsdPhysics, PhysxSchema, Usd
 from isaacsim.robot.manipulators.examples.franka import Franka
 from isaacsim.robot.manipulators.examples.franka.controllers import PickPlaceController
 from isaacsim.storage.native import get_assets_root_path
@@ -64,40 +64,45 @@ ROBOT_ORIENTATION = np.array([1.0, 0.0, 0.0, 0.0])  # wxyz quaternion
 
 # YCB Object Configurations
 # Key: 1, 2, 3 for keyboard selection
+# mesh_name: Child mesh prim name inside the USD file (for collision setup)
+# Selected objects: All < 80mm width (Franka gripper max opening)
 YCB_OBJECT_CONFIGS = {
     "010_potted_meat_can": {
         "key": "1",
         "usd_file": "010_potted_meat_can.usd",
         "display_name": "Potted Meat Can",
-        "mass": 0.37,
-        "pick_height_offset": 0.0,  # No offset needed, pick at object center
-        "spawn_height": 0.10,  # Spawn low, will settle on ground
+        "mesh_name": "_10_potted_meat_can",  # 65-70mm diameter - graspable
+        "mass": 0.35,
+        "pick_height_offset": 0.02,  # Pick slightly above center
+        "spawn_height": 0.35,  # Spawn above platform (will settle on it)
         "spawn_xy": np.array([0.3, 0.3]),
     },
-    "011_banana": {
+    "007_tuna_fish_can": {
         "key": "2",
-        "usd_file": "011_banana.usd",
-        "display_name": "Banana",
-        "mass": 0.12,
-        "pick_height_offset": 0.0,
-        "spawn_height": 0.10,
+        "usd_file": "007_tuna_fish_can.usd",
+        "display_name": "Tuna Fish Can",
+        "mesh_name": "_07_tuna_fish_can",  # ~35mm diameter - easily graspable
+        "mass": 0.20,
+        "pick_height_offset": 0.02,  # Pick slightly above center
+        "spawn_height": 0.35,  # Spawn above platform
         "spawn_xy": np.array([0.3, 0.3]),
     },
-    "040_large_marker": {
+    "061_foam_brick": {
         "key": "3",
-        "usd_file": "040_large_marker.usd",
-        "display_name": "Large Marker",
-        "mass": 0.02,
-        "pick_height_offset": 0.0,
-        "spawn_height": 0.10,
+        "usd_file": "061_foam_brick.usd",
+        "display_name": "Foam Brick",
+        "mesh_name": "_61_foam_brick",  # 38-50mm width - graspable
+        "mass": 0.05,  # Very light
+        "pick_height_offset": 0.02,  # Pick slightly above center
+        "spawn_height": 0.35,  # Spawn above platform
         "spawn_xy": np.array([0.3, 0.3]),
     },
 }
 
 # Default object selection (None = use DynamicCuboid, or YCB object name)
-# YCB objects have physics instability issues - use DynamicCuboid by default
-SELECTED_YCB_OBJECT = "010_potted_meat_can"  # YCB object to use when enabled
-USE_YCB_OBJECTS = False  # Master switch for YCB objects (disabled due to physics issues)
+# Selected graspable YCB objects (< 80mm width for Franka gripper)
+SELECTED_YCB_OBJECT = "010_potted_meat_can"  # Default YCB object
+USE_YCB_OBJECTS = True  # Master switch for YCB objects
 
 # Legacy DynamicCuboid configuration (kept for fallback)
 OBJECT_POSITION = np.array([0.3, 0.3, 0.3])
@@ -179,7 +184,7 @@ class SimulationController:
                 keyboard, self._on_keyboard_event
             )
             print("[INFO] Keyboard controller initialized")
-            print("[INFO] Keys: S=Start, R=Reset, 1=PottedMeatCan, 2=Banana, 3=LargeMarker")
+            print("[INFO] Keys: S=Start, R=Reset, 1=PottedMeatCan, 2=TunaFishCan, 3=FoamBrick")
         except Exception as e:
             carb.log_warn(f"Could not setup keyboard: {e}")
 
@@ -198,11 +203,11 @@ class SimulationController:
                 self.object_change_requested = "010_potted_meat_can"
                 print("\n[INFO] '1' key pressed - Selecting Potted Meat Can")
             elif key_name == "2":
-                self.object_change_requested = "011_banana"
-                print("\n[INFO] '2' key pressed - Selecting Banana")
+                self.object_change_requested = "007_tuna_fish_can"
+                print("\n[INFO] '2' key pressed - Selecting Tuna Fish Can")
             elif key_name == "3":
-                self.object_change_requested = "040_large_marker"
-                print("\n[INFO] '3' key pressed - Selecting Large Marker")
+                self.object_change_requested = "061_foam_brick"
+                print("\n[INFO] '3' key pressed - Selecting Foam Brick")
         return True
 
 
@@ -302,97 +307,272 @@ class VerificationTracker:
 
 
 # =============================================================================
+# RMPFlow Obstacle Manager
+# =============================================================================
+
+class RMPFlowObstacleManager:
+    """
+    RMPFlow 장애물 동적 제어 - pick 시 비활성화, place 시 활성화.
+
+    RMPFlow의 collision avoidance가 gripper가 객체에 도달하는 것을 방해하므로,
+    Pick 동작 중에는 객체 회피를 비활성화하고, Grasp 후에는 다시 활성화합니다.
+    """
+
+    def __init__(self, controller):
+        """
+        Args:
+            controller: PickPlaceController instance
+        """
+        self.controller = controller
+        # RMPFlow 객체 접근 경로
+        self.rmpflow = controller._cspace_controller.rmp_flow
+        self.pick_obstacle = None
+        self.is_disabled = False
+
+    def register_obstacle(self, obstacle):
+        """RMPFlow에 장애물 등록."""
+        if obstacle is not None:
+            self.pick_obstacle = obstacle
+            self.rmpflow.add_obstacle(obstacle, static=False)
+            print(f"[INFO] Registered obstacle with RMPFlow: {obstacle.prim_path}")
+
+    def disable_for_pick(self):
+        """Pick 동작 중 장애물 회피 비활성화."""
+        if self.pick_obstacle and not self.is_disabled:
+            self.rmpflow.disable_obstacle(self.pick_obstacle)
+            self.is_disabled = True
+            print("[INFO] RMPFlow obstacle disabled for picking")
+
+    def enable_after_grasp(self):
+        """Grasp 후 장애물 회피 재활성화."""
+        if self.pick_obstacle and self.is_disabled:
+            self.rmpflow.enable_obstacle(self.pick_obstacle)
+            self.is_disabled = False
+            print("[INFO] RMPFlow obstacle re-enabled")
+
+    def reset(self):
+        """Reset the obstacle manager state."""
+        self.is_disabled = False
+
+
+# =============================================================================
 # Helper Functions
 # =============================================================================
 
-def apply_physics_to_ycb(prim, mass: float) -> None:
+def _remove_existing_physics(prim) -> None:
     """
-    Apply physics properties to a YCB object.
+    Remove any existing physics APIs from the prim and its children.
+    This prevents conflicts with our new physics setup.
+    """
+    # Remove RigidBody from root prim
+    if prim.HasAPI(UsdPhysics.RigidBodyAPI):
+        prim.RemoveAPI(UsdPhysics.RigidBodyAPI)
+        print(f"[INFO] Removed existing RigidBodyAPI from {prim.GetPath()}")
+
+    if prim.HasAPI(PhysxSchema.PhysxRigidBodyAPI):
+        prim.RemoveAPI(PhysxSchema.PhysxRigidBodyAPI)
+
+    # Remove Collision from all child prims (subtree)
+    for child_prim in Usd.PrimRange(prim):
+        if child_prim.IsA(UsdGeom.Gprim):
+            if child_prim.HasAPI(UsdPhysics.CollisionAPI):
+                child_prim.RemoveAPI(UsdPhysics.CollisionAPI)
+                print(f"[INFO] Removed existing CollisionAPI from {child_prim.GetPath()}")
+
+            if child_prim.HasAPI(PhysxSchema.PhysxCollisionAPI):
+                child_prim.RemoveAPI(PhysxSchema.PhysxCollisionAPI)
+
+            if child_prim.HasAPI(UsdPhysics.MeshCollisionAPI):
+                child_prim.RemoveAPI(UsdPhysics.MeshCollisionAPI)
+
+
+def _apply_physics_to_mesh(prim_path: str, mesh_path: str, mass: float) -> None:
+    """
+    Apply physics using SingleGeometryPrim wrapper (like DynamicCuboid) for proper collision.
 
     Args:
-        prim: USD prim to apply physics to
-        mass: Mass in kg
+        prim_path: Root prim path
+        mesh_path: Child mesh prim path
+        mass: Object mass in kg
     """
-    # 1. RigidBody API
-    rigid_body_api = UsdPhysics.RigidBodyAPI.Apply(prim)
+    from isaacsim.core.prims import SingleGeometryPrim
+
+    stage = omni.usd.get_context().get_stage()
+    root_prim = stage.GetPrimAtPath(prim_path)
+
+    # 1. Apply collision using SingleGeometryPrim on the mesh prim (like DynamicCuboid does)
+    geometry_prim = SingleGeometryPrim(
+        prim_path=mesh_path,
+        name=f"geom_{mesh_path.split('/')[-1]}",
+        collision=True,  # Enable collision
+    )
+    geometry_prim.initialize()  # Must initialize before use
+    geometry_prim.set_collision_approximation("convexDecomposition")
+    print(f"[INFO] Applied collision via SingleGeometryPrim to: {mesh_path}")
+
+    # 2. Apply RigidBody to root
+    rigid_body_api = UsdPhysics.RigidBodyAPI.Apply(root_prim)
+    rigid_body_api.CreateRigidBodyEnabledAttr(True)
+    print(f"[INFO] Applied RigidBody to: {prim_path}")
+
+    # 3. Apply mass to root
+    mass_api = UsdPhysics.MassAPI.Apply(root_prim)
+    mass_api.CreateMassAttr(mass)
+    print(f"[INFO] Applied mass ({mass}kg) to: {prim_path}")
+
+
+def _apply_physics_minimal(prim_path: str, mass: float) -> None:
+    """
+    Apply minimal physics to YCB object using simple bounding cube collision.
+    Using 'none' approximation (triangle mesh) for accurate collision but lightweight.
+
+    Args:
+        prim_path: Root prim path
+        mass: Object mass in kg
+    """
+    stage = omni.usd.get_context().get_stage()
+    root_prim = stage.GetPrimAtPath(prim_path)
+
+    # 1. Apply RigidBody
+    rigid_body_api = UsdPhysics.RigidBodyAPI.Apply(root_prim)
+    rigid_body_api.CreateRigidBodyEnabledAttr(True)
+    print(f"[INFO] Applied RigidBody to: {prim_path}")
+
+    # 2. Apply mass
+    mass_api = UsdPhysics.MassAPI.Apply(root_prim)
+    mass_api.CreateMassAttr(mass)
+    print(f"[INFO] Applied mass ({mass}kg) to: {prim_path}")
+
+    # 3. Apply collision using boundingCube (simpler than convexDecomposition)
+    # This creates a box collision that is easier for RMPFlow to handle
+    collision_api = UsdPhysics.CollisionAPI.Apply(root_prim)
+    collision_api.CreateCollisionEnabledAttr(True)
+    mesh_collision_api = UsdPhysics.MeshCollisionAPI.Apply(root_prim)
+    mesh_collision_api.CreateApproximationAttr().Set("boundingCube")
+    print(f"[INFO] Applied collision (boundingCube) to: {prim_path}")
+
+
+def _apply_physics_dynamicobject_pattern(prim_path: str, mesh_path: str, mass: float) -> None:
+    """
+    Apply physics to YCB object.
+
+    Uses simple approach: both RigidBody and Collision on root prim.
+    This is more stable than split approach.
+
+    Args:
+        prim_path: Root prim path for physics
+        mesh_path: (unused - kept for API compatibility)
+        mass: Object mass in kg
+    """
+    stage = omni.usd.get_context().get_stage()
+    root_prim = stage.GetPrimAtPath(prim_path)
+
+    # 1. Apply RigidBody to the root prim
+    rigid_body_api = UsdPhysics.RigidBodyAPI.Apply(root_prim)
     rigid_body_api.CreateRigidBodyEnabledAttr(True)
 
-    # 2. Collision API
-    collision_api = UsdPhysics.CollisionAPI.Apply(prim)
-    collision_api.CreateCollisionEnabledAttr(True)
-
-    # 3. MeshCollision API - use convexHull for stability
-    mesh_collision_api = UsdPhysics.MeshCollisionAPI.Apply(prim)
-    mesh_collision_api.CreateApproximationAttr().Set("convexHull")
-
-    # 4. Mass API
-    mass_api = UsdPhysics.MassAPI.Apply(prim)
+    # Set mass
+    mass_api = UsdPhysics.MassAPI.Apply(root_prim)
     mass_api.CreateMassAttr(mass)
+    print(f"[INFO] Applied rigid body (mass={mass}kg) to root: {prim_path}")
 
-    # 5. PhysX settings for stability
-    physx_api = PhysxSchema.PhysxRigidBodyAPI.Apply(prim)
+    # 2. Apply Collision to the root prim with convexDecomposition (more accurate for complex shapes)
+    collision_api = UsdPhysics.CollisionAPI.Apply(root_prim)
+    collision_api.CreateCollisionEnabledAttr(True)
+    mesh_collision_api = UsdPhysics.MeshCollisionAPI.Apply(root_prim)
+    mesh_collision_api.CreateApproximationAttr().Set("convexDecomposition")
+    print(f"[INFO] Applied collision (convexDecomposition) to root: {prim_path}")
+
+    # 3. Apply additional PhysX settings for stability
+    physx_api = PhysxSchema.PhysxRigidBodyAPI.Apply(root_prim)
     physx_api.CreateSleepThresholdAttr(0.001)  # Settle faster
-
-    print(f"[INFO] Applied physics to YCB object (mass={mass}kg, collision=convexHull)")
+    physx_api.CreateStabilizationThresholdAttr(0.001)
+    print(f"[INFO] Applied PhysX stability settings")
 
 
 def create_ycb_object(world: World, object_name: str) -> dict:
     """
-    Create a YCB object with physics properties.
+    Create a YCB object using "collision proxy" pattern.
+
+    The YCB visual mesh is parented to an invisible DynamicCuboid that handles physics.
+    This allows the gripper to approach properly (like it does with DynamicCuboid)
+    while displaying the YCB visual.
 
     Args:
         world: Isaac Sim World instance
         object_name: Key from YCB_OBJECT_CONFIGS (e.g., "010_potted_meat_can")
 
     Returns:
-        dict: {"prim_path": str, "position": np.ndarray, "config": dict}
+        dict: {"prim_path": str, "position": np.ndarray, "config": dict, "proxy_cube": DynamicCuboid}
     """
     config = YCB_OBJECT_CONFIGS[object_name]
 
     # Get assets root path
     assets_root = get_assets_root_path()
     usd_path = f"{assets_root}/Isaac/Props/YCB/Axis_Aligned/{config['usd_file']}"
-    prim_path = f"/World/YCB_{object_name}"
 
-    # Spawn position
-    spawn_xy = config["spawn_xy"]
-    spawn_height = config["spawn_height"]
-    spawn_position = np.array([spawn_xy[0], spawn_xy[1], spawn_height])
+    # Spawn position (same as DynamicCuboid position for consistency)
+    spawn_position = OBJECT_POSITION.copy()  # [0.3, 0.3, 0.3]
 
-    # Load USD reference
-    print(f"[INFO] Loading YCB object: {config['display_name']}")
-    print(f"[INFO] USD path: {usd_path}")
-    add_reference_to_stage(usd_path=usd_path, prim_path=prim_path)
+    # === Step 1: Create invisible DynamicCuboid as collision proxy ===
+    # This cube handles all physics interaction (same as working DynamicCuboid)
+    proxy_prim_path = f"/World/YCB_Proxy_{object_name}"
+    proxy_cube = DynamicCuboid(
+        prim_path=proxy_prim_path,
+        name=f"ycb_proxy_{object_name}",
+        position=spawn_position,
+        scale=np.array([0.06, 0.06, 0.06]),  # 6cm cube (covers most graspable YCB objects)
+        size=1.0,
+        color=np.array([1, 1, 1]),  # White (will be invisible)
+    )
+    world.scene.add(proxy_cube)
 
-    # Get the prim and set transform
+    # Make the proxy cube invisible but keep physics
     stage = omni.usd.get_context().get_stage()
-    prim = stage.GetPrimAtPath(prim_path)
+    proxy_prim = stage.GetPrimAtPath(proxy_prim_path)
+    imageable = UsdGeom.Imageable(proxy_prim)
+    imageable.MakeInvisible()
+    print(f"[INFO] Created invisible collision proxy at {spawn_position}")
 
-    if not prim.IsValid():
+    # === Step 2: Load YCB visual as a child of the proxy (no physics) ===
+    ycb_prim_path = f"{proxy_prim_path}/YCB_Visual"
+
+    print(f"[INFO] Loading YCB visual: {config['display_name']}")
+    print(f"[INFO] USD path: {usd_path}")
+    add_reference_to_stage(usd_path=usd_path, prim_path=ycb_prim_path)
+
+    # Get the YCB prim
+    ycb_prim = stage.GetPrimAtPath(ycb_prim_path)
+
+    if not ycb_prim.IsValid():
         print(f"[ERROR] Failed to load YCB object from {usd_path}")
         return None
 
-    # Set position using XformOp
-    xform = UsdGeom.Xformable(prim)
-    xform.ClearXformOpOrder()
-    xform.AddTranslateOp().Set(Gf.Vec3d(*spawn_position))
+    # Set YCB visual position relative to proxy center (origin)
+    # Small offset may be needed based on YCB mesh center
+    ycb_xform = UsdGeom.Xformable(ycb_prim)
+    ycb_xform.ClearXformOpOrder()
+    ycb_xform.AddTranslateOp().Set(Gf.Vec3d(0, 0, 0))  # Centered on proxy
 
-    # Apply physics
-    apply_physics_to_ycb(prim, config["mass"])
+    # IMPORTANT: Do NOT apply physics to YCB - it's visual only
+    # The proxy cube handles all physics interaction
 
-    print(f"[INFO] Created YCB object '{config['display_name']}' at {spawn_position}")
+    print(f"[INFO] Created YCB visual '{config['display_name']}' (visual-only, physics via proxy)")
 
     return {
-        "prim_path": prim_path,
+        "prim_path": proxy_prim_path,  # Return proxy path for position tracking
+        "ycb_visual_path": ycb_prim_path,
         "position": spawn_position.copy(),
         "config": config,
         "object_name": object_name,
+        "proxy_cube": proxy_cube,  # For reference
+        "bounding_sphere": None,
     }
 
 
 def delete_ycb_object(object_name: str) -> bool:
     """
-    Delete a YCB object from the stage.
+    Delete a YCB object (proxy cube + visual) from the stage.
 
     Args:
         object_name: Key from YCB_OBJECT_CONFIGS
@@ -400,15 +580,26 @@ def delete_ycb_object(object_name: str) -> bool:
     Returns:
         bool: True if deleted successfully
     """
-    prim_path = f"/World/YCB_{object_name}"
     stage = omni.usd.get_context().get_stage()
-    prim = stage.GetPrimAtPath(prim_path)
+    deleted = False
 
-    if prim.IsValid():
-        stage.RemovePrim(prim_path)
-        print(f"[INFO] Deleted YCB object at {prim_path}")
-        return True
-    return False
+    # Delete proxy cube (which also deletes the YCB visual child)
+    proxy_path = f"/World/YCB_Proxy_{object_name}"
+    proxy_prim = stage.GetPrimAtPath(proxy_path)
+    if proxy_prim.IsValid():
+        stage.RemovePrim(proxy_path)
+        print(f"[INFO] Deleted YCB proxy + visual at {proxy_path}")
+        deleted = True
+
+    # Also try old-style path (for backwards compatibility)
+    old_prim_path = f"/World/YCB_{object_name}"
+    old_prim = stage.GetPrimAtPath(old_prim_path)
+    if old_prim.IsValid():
+        stage.RemovePrim(old_prim_path)
+        print(f"[INFO] Deleted old YCB object at {old_prim_path}")
+        deleted = True
+
+    return deleted
 
 
 def create_support_platform(world: World) -> None:
@@ -571,11 +762,16 @@ def main():
     my_world.scene.add(my_franka)
     print(f"[INFO] Franka robot added at {ROBOT_POSITION}")
 
-    # 5. Pick Object
+    # 5. Support Platform for YCB objects (disabled - using collision proxy approach now)
+    # The proxy cube handles physics at the same position as DynamicCuboid
+    # if USE_YCB_OBJECTS:
+    #     create_support_platform(my_world)
+
+    # 6. Pick Object
     current_object_name = SELECTED_YCB_OBJECT
 
     if USE_YCB_OBJECTS and current_object_name is not None:
-        # Create YCB object (on ground, no support platform needed)
+        # Create YCB object on the support platform
         object_info = create_ycb_object(my_world, current_object_name)
         if object_info is None:
             print("[WARN] Failed to create YCB object, falling back to DynamicCuboid")
@@ -628,6 +824,13 @@ def main():
     print(f"[DEBUG] RMPFlow default robot position: {rmpflow._default_position}")
     print(f"[DEBUG] RMPFlow default robot orientation: {rmpflow._default_orientation}")
 
+    # Initialize RMPFlow obstacle manager for YCB objects
+    obstacle_manager = None
+    if USE_YCB_OBJECTS and object_info is not None and object_info.get("bounding_sphere"):
+        obstacle_manager = RMPFlowObstacleManager(my_controller)
+        obstacle_manager.register_obstacle(object_info["bounding_sphere"])
+        print("[INFO] RMPFlow obstacle manager initialized")
+
     # State tracking
     reset_needed = False
     task_completed = False
@@ -647,13 +850,9 @@ def main():
     # Get the object's ACTUAL position after physics settled (not the pre-stored position)
     # This is critical because physics can cause the object to shift slightly
     object_position = verifier.get_object_position().copy()
-    if current_object_name is not None and current_object_name in YCB_OBJECT_CONFIGS:
-        config = YCB_OBJECT_CONFIGS[current_object_name]
-        object_position[2] += config["pick_height_offset"]  # Adjust pick height for YCB object
-        print(f"[DEBUG] Object ACTUAL position after physics: {verifier.get_object_position()}")
-        print(f"[DEBUG] Pick position (with height offset {config['pick_height_offset']}): {object_position}")
-    else:
-        print(f"[DEBUG] Object ACTUAL position after physics: {object_position}")
+    # Note: With collision proxy approach, YCB objects use the same position as DynamicCuboid
+    # No pick_height_offset needed since proxy cube behaves identically
+    print(f"[DEBUG] Object ACTUAL position after physics: {object_position}")
     verifier.pick_target = object_position  # Update the verifier's pick target too
 
     # Create keyboard controller for 'S' key input
@@ -669,9 +868,9 @@ def main():
     print("Simulation ready!")
     print("  - Press 'S' key to start the Pick and Place task")
     if USE_YCB_OBJECTS:
-        print("  - Press '1' for Potted Meat Can")
-        print("  - Press '2' for Banana")
-        print("  - Press '3' for Large Marker")
+        print("  - Press '1' for Potted Meat Can (65-70mm)")
+        print("  - Press '2' for Tuna Fish Can (~35mm)")
+        print("  - Press '3' for Foam Brick (38-50mm)")
     print("  - Press 'R' to reset")
     if current_object_name is not None and current_object_name in YCB_OBJECT_CONFIGS:
         print(f"Current object: {YCB_OBJECT_CONFIGS[current_object_name]['display_name']}")
@@ -728,6 +927,10 @@ def main():
                 my_world.reset()
                 my_controller.reset()
 
+                # Reset obstacle manager state
+                if obstacle_manager:
+                    obstacle_manager.reset()
+
                 # Update verifier with new object path
                 verifier.object_xform = SingleXFormPrim(prim_path=object_info["prim_path"])
                 verifier.initialize()  # Re-initialize verifier after reset
@@ -737,7 +940,7 @@ def main():
                 object_position = verifier.get_object_position().copy()
                 if current_object_name is not None and current_object_name in YCB_OBJECT_CONFIGS:
                     config = YCB_OBJECT_CONFIGS[current_object_name]
-                    object_position[2] += config["pick_height_offset"]  # Adjust pick height
+                    # No pick_height_offset needed with collision proxy approach
                     print(f"[INFO] Simulation reset - Object: {config['display_name']}")
                 else:
                     print("[INFO] Simulation reset - Object: DynamicCuboid")
@@ -748,8 +951,6 @@ def main():
                 task_completed = False
                 task_started = False
                 step_count = 0
-                print(f"[INFO] Simulation reset - Object: {config['display_name']}")
-                print(f"[INFO] Pick position: {object_position}")
 
             # Wait for user to press 'S' or Play button (auto-started in headless mode)
             if not task_started:
@@ -781,6 +982,16 @@ def main():
                 print(f"  current_ee_position: {current_ee_pos}")
                 print(f"  current_joint_positions: {current_joints[:4]}...")  # First 4 joints
                 print(f"  current_event: {my_controller._event}")
+
+            # Phase-based RMPFlow obstacle control
+            # Disable obstacle avoidance during pick phases (0-4) to allow gripper to reach object
+            # Re-enable during place phases (5+) for safety
+            if obstacle_manager:
+                current_phase = my_controller.get_current_event()
+                if current_phase in [0, 1, 2, 3, 4]:
+                    obstacle_manager.disable_for_pick()
+                elif current_phase >= 5:
+                    obstacle_manager.enable_after_grasp()
 
             actions = my_controller.forward(
                 picking_position=object_position,
