@@ -3584,57 +3584,210 @@ Collider를 convex hull 형태로 했다가, 단순하게 한다고 box collider
   
   
   ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-(프롬프트x)  
+(프롬프트6)  
 이번 세션 작업 내용을 work_log.txt에 추가해줘.
 
 
 
 ####################################################################################################################################################################################################################################
-(프롬프트x 결과)
-● work_log.txt에 이번 세션 작업 내용을 추가했습니다.
+(프롬프트6 결과)
+● Read(work_log.txt)
+  ⎿  Read 127 lines
 
-  추가된 섹션: 12. 세션 작업 로그 (2026-01-15 문서화 및 Git 초기화)
+● 이번 세션의 작업 내용은 이미 work_log.txt에 추가되어 있습니다.
 
-  작업 1: 3D 프레젠테이션 HTML 생성
-  - Three.js 기반 애니메이션
-  - 10단계 Pick and Place 동작 시각화
+  세션 17 (2026-01-16) - "YCB 성공! Collision Proxy 패턴" 섹션이 640~723행에 기록되어 있으며, 다음 내용을 포함합니다:
 
-  작업 2: Technical Report 문서 생성 (docx)
-  - python-docx로 11개 섹션 문서 생성
+  - 핵심 문제 분석: RMPFlow collision avoidance로 인한 gripper 도달 실패
+  - 해결책: Collision Proxy 패턴 (invisible DynamicCuboid + YCB visual)
+  - 핵심 코드: create_ycb_object() 함수 구현
+  - 테스트 결과: 3개 YCB 객체 모두 11.1mm 정확도로 성공
+  - 코드 변경 사항: create_ycb_object(), delete_ycb_object() 등
 
-  작업 3: Git 저장소 초기화
-  - .gitignore 생성
-  - 초기 커밋 (11개 파일)
-
-  작업 4: README.md 추가
-  - 프로젝트 문서화
-
-  Git 커밋 이력:
-  e13bcb1 Add README.md with project documentation
-  58b14df Initial commit: Isaac Sim 4.5 Pick and Place Project
+  추가로 기록할 내용이 있으신가요?
   
   
   ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-(프롬프트x)  
-git 커밋해줘.
-git commit work_log.txt 변경사항
-GitHub에 push 해 줘.
+(프롬프트7)  
+Git 커밋하고, GitHub에도 push 해 줘.
 
 
 
 ####################################################################################################################################################################################################################################
-(프롬프트x 결과)
-● Bash(cd ~/ClaudeCode_PlanMode_PickAndPlace && git add work_log.txt && git commit -m "Update work_log.txt with session 12 documentation…)
-  ⎿  [main 750e54a] Update work_log.txt with session 12 documentation
-      1 file changed, 71 insertions(+)
+(프롬프트7 결과)
+● Bash(cd ~/ClaudeCode_PlanMode_PickAndPlace && git status)
+  ⎿  On branch main                               
+     Your branch is up to date with 'origin/main'.
+     … +8 lines (ctrl+o to expand)
 
-● 커밋 완료되었습니다.
+● Bash(cd ~/ClaudeCode_PlanMode_PickAndPlace && git diff --stat)
+  ⎿   .../260115_2_ClaudeCode_PlanMode_PickAndPlace      | 4183 ++++++++++++++++----
+      franka_ycb_pick_place.py                           |  387 +-
+      work_log.txt                                       |  193 +
+      3 files changed, 3924 insertions(+), 839 deletions(-)
 
-  [main 750e54a] Update work_log.txt with session 12 documentation
-   1 file changed, 71 insertions(+)
+● Bash(cd ~/ClaudeCode_PlanMode_PickAndPlace && git log --oneline -3)
+  ⎿  02beae2 Add YCB dataset support infrastructure (disabled by default)
+     21cf326 Update work_log.txt with session 14 - GitHub integration
+     a262eb0 Update work_log.txt with session 13 documentation
 
-  Git 이력
+● Bash(cd ~/ClaudeCode_PlanMode_PickAndPlace && git add franka_ycb_pick_place.py work_log.txt documents/260115_2/260115_2_ClaudeCode_PlanMode_PickAndPlace && git commi…)
+  ⎿  [main 88f155e] Implement Collision Proxy pattern for YCB pick and place success
+      3 files changed, 3924 insertions(+), 839 deletions(-)
 
-  750e54a Update work_log.txt with session 12 documentation
-  e13bcb1 Add README.md with project documentation
-  58b14df Initial commit: Isaac Sim 4.5 Pick and Place Project
+● Bash(cd ~/ClaudeCode_PlanMode_PickAndPlace && git push origin main)
+  ⎿  To https://github.com/scholarchoi-yjchoi/ClaudeCode_PlanMode_PickAndPlace.git
+        02beae2..88f155e  main -> main
+
+● Git 커밋 및 GitHub push 완료.
+
+  커밋 정보:
+  88f155e Implement Collision Proxy pattern for YCB pick and place success
+
+  변경된 파일:
+  - franka_ycb_pick_place.py - Collision Proxy 패턴 구현
+  - work_log.txt - 세션 17 문서화
+  - documents/260115_2/... - 대화 로그
+
+  GitHub Repository:
+  https://github.com/scholarchoi-yjchoi/ClaudeCode_PlanMode_PickAndPlace
+  
+
+
+  ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+(프롬프트8)
+이 프로젝트를 다른 사람한테 설명해줘야해.
+이 프로젝트의 (시작~현재) 작업 내역이 work_log.txt에 정리되어 있으니깐, 참고해서 이 프로젝트를 다른 사람한테 아주 잘 설명할수 있게 3D 애니메이션을 포함한 시각화를 보여주는 html 파일을 만들어줘. 
+  
+  
+
+####################################################################################################################################################################################################################################
+(프롬프트8 결과)
+● Read(work_log.txt)
+  ⎿  Read 726 lines
+
+● Write(project_presentation_v2.html)
+  ⎿  Wrote 1354 lines to project_presentation_v2.html                                                 
+       1 <!DOCTYPE html>
+       2 <html lang="ko">
+       3 <head>
+       4     <meta charset="UTF-8">
+       5     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+       6     <title>Isaac Sim 4.5 Pick and Place Project</title>
+       7     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+       8     <style>
+       9         * {
+      10             margin: 0;
+     … +1344 lines (ctrl+o to expand)
+
+● 3D 애니메이션 HTML 프레젠테이션을 생성했습니다.
+
+  파일: project_presentation_v2.html
+
+  주요 섹션:
+
+  1. Hero Section - 프로젝트 개요와 3D 로봇 시각화
+    - 26회 테스트, 8개 문제 해결, 7.1mm 정확도 통계
+  2. Project Journey - 타임라인 형식의 개발 여정
+    - 2026-01-14 프로젝트 시작 → 2026-01-16 YCB 성공
+  3. 10 Phases Animation - Pick and Place 동작 시퀀스
+    - Play 버튼으로 전체 동작 애니메이션 재생
+    - 각 Phase별 카드 하이라이트
+  4. 8 Problems Solved - 해결한 문제들 카드 형식 정리
+    - 증상(빨간색) → 해결책(초록색) 시각화
+  5. Collision Proxy Pattern - YCB 성공의 핵심 패턴
+    - Before/After 다이어그램
+    - 핵심 코드 블록
+  6. Final Results - 테스트 결과 대시보드
+    - DynamicCuboid: 7.1mm
+    - YCB 객체들: 11.1mm
+
+  실행 방법:
+  # 브라우저에서 열기
+  xdg-open ~/ClaudeCode_PlanMode_PickAndPlace/project_presentation_v2.html
+
+
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+(프롬프트9)
+이 프로젝트의 (시작~현재) 작업 내역이 work_log.txt에 정리되어 있는데, work_log.txt에 정리된 내용들  참고해서...
+네가 이 프로젝트의 (시작~현재)까지 작업한 내용을 명확히 정리해서 docx 파일로 문서화해줘.
+(참고로, docx 파일로 문서화되는 내용은 SDK/API 문서같은 technical document처럼 이 프로젝트에 처음 참여하는 사람도 쉽게 이 프로젝트를 이해할 수 있는 technical report 형태의 문서이면 좋겠어.)
+
+
+
+####################################################################################################################################################################################################################################
+(프롬프트9 결과)
+● Write(generate_technical_report_v2.py)
+  ⎿  Wrote 1130 lines to generate_technical_report_v2.py                           
+      1 #!/usr/bin/env python3
+      2 """
+      3 Generate Technical Report for Isaac Sim Pick and Place Project
+      4 Creates a comprehensive .docx document covering the entire project journey.
+      5 """
+      6 from docx import Document
+      7 from docx.shared import Inches, Pt, RGBColor
+      8 from docx.enum.text import WD_ALIGN_PARAGRAPH
+      9 from docx.enum.style import WD_STYLE_TYPE
+     … +1120 lines (ctrl+o to expand)
+
+● Bash(cd ~/ClaudeCode_PlanMode_PickAndPlace && python3 -c "import docx; print('python-docx is installed')" 2>/dev/null || pip3 install python-docx)
+  ⎿  Error: Exit code 127
+     /bin/bash: line 1: pip3: command not found
+
+● Bash(cd ~/ClaudeCode_PlanMode_PickAndPlace && /home/yjchoi/miniconda3/bin/pip install python-docx 2>/dev/null || conda install -y python-docx 2>/dev/null || /home/yj…)
+  ⎿  Collecting python-docx                                             
+       Using cached python_docx-1.2.0-py3-none-any.whl.metadata (2.0 kB)
+     Collecting lxml>=3.1.0 (from python-docx)
+     … +8 lines (ctrl+o to expand)
+
+● Bash(cd ~/ClaudeCode_PlanMode_PickAndPlace && /home/yjchoi/miniconda3/bin/python generate_technical_report_v2.py)
+  ⎿  Document saved to: /home/yjchoi/ClaudeCode_PlanMode_PickAndPlace/Isaac_Sim_Pick_and_Place_Technical_Report_v2.docx
+
+● Bash(ls -la ~/ClaudeCode_PlanMode_PickAndPlace/Isaac_Sim_Pick_and_Place_Technical_Report_v2.docx)
+  ⎿  -rw-rw-r-- 1 yjchoi yjchoi 45619 Jan 16 17:32 /home/yjchoi/ClaudeCode_PlanMode_PickAndPlace/Isaac_Sim_Pick_and_Place_Technical_Report_v2.docx
+
+● Technical Report 문서를 생성했습니다.
+
+  파일: Isaac_Sim_Pick_and_Place_Technical_Report_v2.docx (45KB)
+
+  문서 구성 (11개 섹션):
+  ┌──────────────────────┬─────────────────────────────────────────────────┐
+  │         섹션         │                      내용                       │
+  ├──────────────────────┼─────────────────────────────────────────────────┤
+  │ 1. 프로젝트 개요     │ 목표, 성과, 기술 스택                           │
+  ├──────────────────────┼─────────────────────────────────────────────────┤
+  │ 2. 시스템 요구사항   │ 하드웨어/소프트웨어 요구사항                    │
+  ├──────────────────────┼─────────────────────────────────────────────────┤
+  │ 3. 프로젝트 구조     │ 디렉토리 구조, 주요 파일 설명                   │
+  ├──────────────────────┼─────────────────────────────────────────────────┤
+  │ 4. 핵심 개념         │ Pick and Place 원리, 10단계 Phase, RMPFlow      │
+  ├──────────────────────┼─────────────────────────────────────────────────┤
+  │ 5. 문제 분석 및 해결 │ 8가지 문제와 해결 과정 (상세 코드 포함)         │
+  ├──────────────────────┼─────────────────────────────────────────────────┤
+  │ 6. YCB 데이터셋 지원 │ YCB 문제점, Collision Proxy 패턴                │
+  ├──────────────────────┼─────────────────────────────────────────────────┤
+  │ 7. API 레퍼런스      │ Import, VerificationTracker, YCB_OBJECT_CONFIGS │
+  ├──────────────────────┼─────────────────────────────────────────────────┤
+  │ 8. 테스트 결과       │ 26회 테스트 이력, 최종 결과표                   │
+  ├──────────────────────┼─────────────────────────────────────────────────┤
+  │ 9. 실행 방법         │ GUI/Headless 모드, 키보드 컨트롤                │
+  ├──────────────────────┼─────────────────────────────────────────────────┤
+  │ 10. 향후 개선 사항   │ 5가지 개선 제안                                 │
+  ├──────────────────────┼─────────────────────────────────────────────────┤
+  │ 11. 참고 자료        │ 프로젝트 파일, Isaac Sim 공식 자료              │
+  └──────────────────────┴─────────────────────────────────────────────────┘
+  문서 열기:
+  libreoffice ~/ClaudeCode_PlanMode_PickAndPlace/Isaac_Sim_Pick_and_Place_Technical_Report_v2.docx
+  
+  
+  
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+(프롬프트10)  
+이번 세션 작업 내용을 (1)work_log.txt에 추가하고 (2)Git 커밋하고 (3)GitHub에도 push 해 줘.
+
+
+
+####################################################################################################################################################################################################################################
+(프롬프트10 결과)
+

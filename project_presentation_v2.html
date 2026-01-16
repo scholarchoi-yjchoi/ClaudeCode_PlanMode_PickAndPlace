@@ -1,0 +1,1353 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Isaac Sim 4.5 Pick and Place Project</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --dark: #1e1b4b;
+            --light: #f8fafc;
+        }
+
+        body {
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #1e1b4b 100%);
+            color: white;
+            overflow-x: hidden;
+        }
+
+        /* Navigation */
+        nav {
+            position: fixed;
+            top: 0;
+            width: 100%;
+            padding: 1rem 2rem;
+            background: rgba(30, 27, 75, 0.95);
+            backdrop-filter: blur(10px);
+            z-index: 1000;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        nav .logo {
+            font-size: 1.5rem;
+            font-weight: bold;
+            background: linear-gradient(90deg, #6366f1, #a855f7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        nav ul {
+            display: flex;
+            gap: 2rem;
+            list-style: none;
+        }
+
+        nav a {
+            color: #94a3b8;
+            text-decoration: none;
+            transition: color 0.3s;
+        }
+
+        nav a:hover {
+            color: white;
+        }
+
+        /* Hero Section */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            padding: 6rem 2rem 2rem;
+            position: relative;
+        }
+
+        .hero-content {
+            flex: 1;
+            max-width: 600px;
+            padding-left: 5%;
+            z-index: 10;
+        }
+
+        .hero h1 {
+            font-size: 3.5rem;
+            margin-bottom: 1rem;
+            line-height: 1.1;
+        }
+
+        .hero h1 span {
+            background: linear-gradient(90deg, #6366f1, #a855f7, #ec4899);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hero p {
+            font-size: 1.25rem;
+            color: #94a3b8;
+            margin-bottom: 2rem;
+            line-height: 1.6;
+        }
+
+        .hero-3d {
+            flex: 1;
+            height: 600px;
+            position: relative;
+        }
+
+        #robot-canvas {
+            width: 100%;
+            height: 100%;
+        }
+
+        .stats-row {
+            display: flex;
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+
+        .stat-box {
+            text-align: center;
+            padding: 1rem 1.5rem;
+            background: rgba(99, 102, 241, 0.1);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            border-radius: 12px;
+        }
+
+        .stat-box .number {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: var(--primary);
+        }
+
+        .stat-box .label {
+            font-size: 0.9rem;
+            color: #94a3b8;
+        }
+
+        /* Section Styles */
+        section {
+            padding: 5rem 2rem;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .section-title {
+            font-size: 2.5rem;
+            text-align: center;
+            margin-bottom: 1rem;
+        }
+
+        .section-subtitle {
+            text-align: center;
+            color: #94a3b8;
+            margin-bottom: 3rem;
+            font-size: 1.1rem;
+        }
+
+        /* Timeline */
+        .timeline {
+            position: relative;
+            padding: 2rem 0;
+        }
+
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 4px;
+            height: 100%;
+            background: linear-gradient(180deg, var(--primary), var(--success));
+            border-radius: 2px;
+        }
+
+        .timeline-item {
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            margin-bottom: 3rem;
+            position: relative;
+        }
+
+        .timeline-item:nth-child(odd) .timeline-content {
+            margin-right: 52%;
+            text-align: right;
+        }
+
+        .timeline-item:nth-child(even) .timeline-content {
+            margin-left: 52%;
+        }
+
+        .timeline-content {
+            width: 45%;
+            padding: 1.5rem;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+
+        .timeline-content:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 40px rgba(99, 102, 241, 0.2);
+        }
+
+        .timeline-dot {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 20px;
+            height: 20px;
+            background: var(--primary);
+            border-radius: 50%;
+            border: 4px solid var(--dark);
+            z-index: 1;
+        }
+
+        .timeline-content h3 {
+            color: var(--primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .timeline-content .date {
+            font-size: 0.85rem;
+            color: #64748b;
+            margin-bottom: 0.5rem;
+        }
+
+        /* Phase Cards */
+        .phases-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            justify-content: center;
+        }
+
+        .phase-card {
+            width: 180px;
+            padding: 1.5rem 1rem;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+
+        .phase-card:hover, .phase-card.active {
+            background: rgba(99, 102, 241, 0.2);
+            border-color: var(--primary);
+            transform: translateY(-5px);
+        }
+
+        .phase-card .phase-num {
+            width: 40px;
+            height: 40px;
+            background: var(--primary);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 1rem;
+            font-weight: bold;
+        }
+
+        .phase-card .phase-name {
+            font-size: 0.9rem;
+            color: #e2e8f0;
+        }
+
+        /* Problem Cards */
+        .problems-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .problem-card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 2rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s;
+        }
+
+        .problem-card:hover {
+            border-color: var(--primary);
+            box-shadow: 0 10px 40px rgba(99, 102, 241, 0.15);
+        }
+
+        .problem-card .problem-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .problem-card .problem-icon {
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, var(--danger), #f97316);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+        }
+
+        .problem-card.solved .problem-icon {
+            background: linear-gradient(135deg, var(--success), #22c55e);
+        }
+
+        .problem-card h3 {
+            font-size: 1.1rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .problem-card .symptom {
+            color: #94a3b8;
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+            padding: 0.75rem;
+            background: rgba(239, 68, 68, 0.1);
+            border-radius: 8px;
+            border-left: 3px solid var(--danger);
+        }
+
+        .problem-card .solution {
+            color: #a7f3d0;
+            font-size: 0.9rem;
+            padding: 0.75rem;
+            background: rgba(16, 185, 129, 0.1);
+            border-radius: 8px;
+            border-left: 3px solid var(--success);
+        }
+
+        /* Collision Proxy Section */
+        .proxy-section {
+            background: rgba(99, 102, 241, 0.1);
+            border-radius: 24px;
+            padding: 3rem;
+            margin: 2rem 0;
+            border: 1px solid rgba(99, 102, 241, 0.3);
+        }
+
+        .proxy-diagram {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 2rem;
+            margin: 2rem 0;
+            flex-wrap: wrap;
+        }
+
+        .proxy-box {
+            padding: 2rem;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 16px;
+            text-align: center;
+            min-width: 200px;
+        }
+
+        .proxy-box.before {
+            border: 2px solid var(--danger);
+        }
+
+        .proxy-box.after {
+            border: 2px solid var(--success);
+        }
+
+        .proxy-box h4 {
+            margin-bottom: 1rem;
+            font-size: 1.2rem;
+        }
+
+        .proxy-box .visual {
+            font-size: 4rem;
+            margin: 1rem 0;
+        }
+
+        .proxy-arrow {
+            font-size: 3rem;
+            color: var(--primary);
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.1); }
+        }
+
+        /* Code Block */
+        .code-block {
+            background: #0f172a;
+            border-radius: 12px;
+            padding: 1.5rem;
+            overflow-x: auto;
+            font-family: 'Fira Code', 'Consolas', monospace;
+            font-size: 0.9rem;
+            line-height: 1.6;
+            border: 1px solid #1e293b;
+        }
+
+        .code-block .comment {
+            color: #64748b;
+        }
+
+        .code-block .keyword {
+            color: #c084fc;
+        }
+
+        .code-block .string {
+            color: #a5f3fc;
+        }
+
+        .code-block .function {
+            color: #fbbf24;
+        }
+
+        .code-block .number {
+            color: #f472b6;
+        }
+
+        /* Results Section */
+        .results-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .result-card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 2rem;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .result-card .object-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+
+        .result-card h4 {
+            margin-bottom: 0.5rem;
+        }
+
+        .result-card .accuracy {
+            font-size: 2rem;
+            font-weight: bold;
+            color: var(--success);
+            margin: 1rem 0;
+        }
+
+        .result-card .status {
+            display: inline-block;
+            padding: 0.5rem 1rem;
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--success);
+            border-radius: 20px;
+            font-size: 0.9rem;
+        }
+
+        /* Animation Controls */
+        .controls {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            margin: 2rem 0;
+        }
+
+        .btn {
+            padding: 0.75rem 2rem;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-dark);
+            transform: translateY(-2px);
+        }
+
+        .btn-outline {
+            background: transparent;
+            color: var(--primary);
+            border: 2px solid var(--primary);
+        }
+
+        .btn-outline:hover {
+            background: var(--primary);
+            color: white;
+        }
+
+        /* Footer */
+        footer {
+            padding: 3rem 2rem;
+            text-align: center;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            margin-top: 4rem;
+        }
+
+        footer a {
+            color: var(--primary);
+            text-decoration: none;
+        }
+
+        /* 3D Animation Container */
+        .animation-container {
+            width: 100%;
+            height: 500px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 16px;
+            overflow: hidden;
+            margin: 2rem 0;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .hero {
+                flex-direction: column;
+                text-align: center;
+            }
+
+            .hero-content {
+                padding: 0;
+            }
+
+            .hero h1 {
+                font-size: 2.5rem;
+            }
+
+            .stats-row {
+                justify-content: center;
+            }
+
+            .timeline::before {
+                left: 20px;
+            }
+
+            .timeline-item:nth-child(odd) .timeline-content,
+            .timeline-item:nth-child(even) .timeline-content {
+                margin: 0 0 0 50px;
+                text-align: left;
+                width: calc(100% - 60px);
+            }
+
+            .timeline-dot {
+                left: 20px;
+            }
+
+            nav ul {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav>
+        <div class="logo">Isaac Sim Pick & Place</div>
+        <ul>
+            <li><a href="#overview">Overview</a></li>
+            <li><a href="#journey">Journey</a></li>
+            <li><a href="#phases">Phases</a></li>
+            <li><a href="#problems">Problems</a></li>
+            <li><a href="#solution">Solution</a></li>
+            <li><a href="#results">Results</a></li>
+        </ul>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero" id="overview">
+        <div class="hero-content">
+            <h1>Isaac Sim 4.5<br><span>Pick and Place</span><br>Project</h1>
+            <p>Franka Panda 로봇을 사용한 자율 물체 조작 시뮬레이션.
+            26번의 테스트와 8가지 문제 해결을 통해 7.1mm 정확도 달성.</p>
+
+            <div class="stats-row">
+                <div class="stat-box">
+                    <div class="number">26</div>
+                    <div class="label">Tests</div>
+                </div>
+                <div class="stat-box">
+                    <div class="number">8</div>
+                    <div class="label">Problems Solved</div>
+                </div>
+                <div class="stat-box">
+                    <div class="number">7.1mm</div>
+                    <div class="label">Accuracy</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="hero-3d">
+            <div id="robot-canvas"></div>
+        </div>
+    </section>
+
+    <!-- Journey Timeline -->
+    <section id="journey">
+        <h2 class="section-title">Project Journey</h2>
+        <p class="section-subtitle">2026년 1월 14일부터 16일까지의 개발 여정</p>
+
+        <div class="timeline">
+            <div class="timeline-item">
+                <div class="timeline-content">
+                    <div class="date">2026-01-14</div>
+                    <h3>프로젝트 시작</h3>
+                    <p>Isaac Sim 4.5 API를 사용한 Franka Panda Pick and Place 구현 시작. YCB 바나나 객체 사용 시도.</p>
+                </div>
+                <div class="timeline-dot"></div>
+            </div>
+
+            <div class="timeline-item">
+                <div class="timeline-content">
+                    <div class="date">2026-01-15 오전</div>
+                    <h3>RMPFlow 장애물 문제 발견</h3>
+                    <p>테이블이 RMPFlow 경로 계획을 방해하는 것을 발견. 테이블 제거 시 XY 정확도 0.0147m 달성.</p>
+                </div>
+                <div class="timeline-dot"></div>
+            </div>
+
+            <div class="timeline-item">
+                <div class="timeline-content">
+                    <div class="date">2026-01-15 오후</div>
+                    <h3>핵심 해결책 발견!</h3>
+                    <p>그리퍼 초기화 코드 추가로 DynamicCuboid Pick and Place 성공! 7.1mm 정확도 달성.</p>
+                </div>
+                <div class="timeline-dot" style="background: var(--success);"></div>
+            </div>
+
+            <div class="timeline-item">
+                <div class="timeline-content">
+                    <div class="date">2026-01-15 저녁</div>
+                    <h3>YCB 데이터셋 도전</h3>
+                    <p>YCB 객체 지원 구현 시도. RMPFlow collision avoidance로 인해 gripper가 6cm 위에서 정지하는 문제 발생.</p>
+                </div>
+                <div class="timeline-dot"></div>
+            </div>
+
+            <div class="timeline-item">
+                <div class="timeline-content">
+                    <div class="date">2026-01-16</div>
+                    <h3>Collision Proxy 패턴으로 YCB 성공!</h3>
+                    <p>보이지 않는 DynamicCuboid를 collision proxy로 사용하여 모든 YCB 객체 11.1mm 정확도 달성!</p>
+                </div>
+                <div class="timeline-dot" style="background: var(--success);"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 10 Phases -->
+    <section id="phases">
+        <h2 class="section-title">Pick and Place 10 Phases</h2>
+        <p class="section-subtitle">PickPlaceController의 10단계 동작 시퀀스</p>
+
+        <div class="animation-container" id="phase-animation"></div>
+
+        <div class="controls">
+            <button class="btn btn-primary" onclick="playAnimation()">Play Animation</button>
+            <button class="btn btn-outline" onclick="resetAnimation()">Reset</button>
+        </div>
+
+        <div class="phases-container">
+            <div class="phase-card" data-phase="0">
+                <div class="phase-num">0</div>
+                <div class="phase-name">Moving above pick</div>
+            </div>
+            <div class="phase-card" data-phase="1">
+                <div class="phase-num">1</div>
+                <div class="phase-name">Lowering to grasp</div>
+            </div>
+            <div class="phase-card" data-phase="2">
+                <div class="phase-num">2</div>
+                <div class="phase-name">Waiting settle</div>
+            </div>
+            <div class="phase-card" data-phase="3">
+                <div class="phase-num">3</div>
+                <div class="phase-name">Closing gripper</div>
+            </div>
+            <div class="phase-card" data-phase="4">
+                <div class="phase-num">4</div>
+                <div class="phase-name">Lifting object</div>
+            </div>
+            <div class="phase-card" data-phase="5">
+                <div class="phase-num">5</div>
+                <div class="phase-name">Moving to place XY</div>
+            </div>
+            <div class="phase-card" data-phase="6">
+                <div class="phase-num">6</div>
+                <div class="phase-name">Lowering to place</div>
+            </div>
+            <div class="phase-card" data-phase="7">
+                <div class="phase-num">7</div>
+                <div class="phase-name">Opening gripper</div>
+            </div>
+            <div class="phase-card" data-phase="8">
+                <div class="phase-num">8</div>
+                <div class="phase-name">Lifting up</div>
+            </div>
+            <div class="phase-card" data-phase="9">
+                <div class="phase-num">9</div>
+                <div class="phase-name">Going home</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Problems Section -->
+    <section id="problems">
+        <h2 class="section-title">8 Problems Solved</h2>
+        <p class="section-subtitle">프로젝트 진행 중 해결한 주요 문제들</p>
+
+        <div class="problems-grid">
+            <div class="problem-card solved">
+                <div class="problem-header">
+                    <div class="problem-icon">1</div>
+                    <h3>로봇이 잘못된 위치로 이동</h3>
+                </div>
+                <div class="symptom">EE XY 거리가 0.5417m - 객체와 전혀 다른 위치</div>
+                <div class="solution">객체 위치를 로봇 작업 범위 내로 조정 [0.3, 0.3, 0.3]</div>
+            </div>
+
+            <div class="problem-card solved">
+                <div class="problem-header">
+                    <div class="problem-icon">2</div>
+                    <h3>Z 높이가 너무 높음</h3>
+                </div>
+                <div class="symptom">EE z=0.36 vs 객체 z=0.27 - 로봇이 내려가지 못함</div>
+                <div class="solution">테이블 높이 z=0.25로 조정, 객체 z=0.27 설정</div>
+            </div>
+
+            <div class="problem-card solved">
+                <div class="problem-header">
+                    <div class="problem-icon">3</div>
+                    <h3>객체가 움직이지 않음</h3>
+                </div>
+                <div class="symptom">로봇 동작은 완료되지만 객체가 전혀 이동하지 않음</div>
+                <div class="solution">UsdPhysics.RigidBodyAPI, CollisionAPI, MassAPI 추가</div>
+            </div>
+
+            <div class="problem-card solved">
+                <div class="problem-header">
+                    <div class="problem-icon">4</div>
+                    <h3>객체가 잘못된 위치로 이동</h3>
+                </div>
+                <div class="symptom">Physics settle 후 객체 위치 변경, 로봇은 초기 위치 타겟팅</div>
+                <div class="solution">world.reset() 후 실제 위치 재획득</div>
+            </div>
+
+            <div class="problem-card solved">
+                <div class="problem-header">
+                    <div class="problem-icon">5</div>
+                    <h3>YCB 객체가 굴러감</h3>
+                </div>
+                <div class="symptom">바나나가 physics settle 중 테이블에서 떨어짐</div>
+                <div class="solution">DynamicCuboid 사용 (안정적인 형태)</div>
+            </div>
+
+            <div class="problem-card solved">
+                <div class="problem-header">
+                    <div class="problem-icon">6</div>
+                    <h3>테이블이 RMPFlow 방해</h3>
+                </div>
+                <div class="symptom">테이블이 있으면 EE XY 거리 0.45~0.55m (완전히 잘못된 경로)</div>
+                <div class="solution">테이블 제거, GroundPlane만 사용</div>
+            </div>
+
+            <div class="problem-card solved">
+                <div class="problem-header">
+                    <div class="problem-icon">7</div>
+                    <h3>EE 최저 높이 제한</h3>
+                </div>
+                <div class="symptom">로봇이 z=0.287 이하로 내려가지 못함</div>
+                <div class="solution">객체를 z~0.27에 배치 (도달 가능 높이)</div>
+            </div>
+
+            <div class="problem-card solved">
+                <div class="problem-header">
+                    <div class="problem-icon">8</div>
+                    <h3>그리퍼 초기화 누락</h3>
+                </div>
+                <div class="symptom">로봇이 접근 중 객체를 밀어냄</div>
+                <div class="solution">gripper.set_default_state() 호출 - 핵심 해결책!</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Collision Proxy Solution -->
+    <section id="solution">
+        <h2 class="section-title">Collision Proxy Pattern</h2>
+        <p class="section-subtitle">YCB 객체 문제를 해결한 핵심 패턴</p>
+
+        <div class="proxy-section">
+            <div class="proxy-diagram">
+                <div class="proxy-box before">
+                    <h4>Before (실패)</h4>
+                    <div class="visual">🥫</div>
+                    <p>복잡한 YCB mesh collision</p>
+                    <p style="color: var(--danger);">Gripper 6cm 위에서 정지</p>
+                </div>
+
+                <div class="proxy-arrow">→</div>
+
+                <div class="proxy-box after">
+                    <h4>After (성공)</h4>
+                    <div class="visual">📦 + 🥫</div>
+                    <p>Invisible cube (physics)<br>+ YCB visual (no physics)</p>
+                    <p style="color: var(--success);">11.1mm 정확도 달성!</p>
+                </div>
+            </div>
+
+            <h3 style="margin: 2rem 0 1rem; text-align: center;">핵심 코드</h3>
+            <div class="code-block">
+<span class="keyword">def</span> <span class="function">create_ycb_object</span>(world, object_name):
+    <span class="comment"># Step 1: 보이지 않는 DynamicCuboid 생성 (collision proxy)</span>
+    proxy_cube = <span class="function">DynamicCuboid</span>(
+        prim_path=<span class="string">f"/World/YCB_Proxy_{object_name}"</span>,
+        position=<span class="string">np.array([0.3, 0.3, 0.3])</span>,
+        scale=<span class="string">np.array([0.06, 0.06, 0.06])</span>,  <span class="comment"># 6cm cube</span>
+    )
+    world.scene.add(proxy_cube)
+
+    <span class="comment"># Proxy cube를 보이지 않게 설정</span>
+    imageable = UsdGeom.<span class="function">Imageable</span>(proxy_prim)
+    imageable.<span class="function">MakeInvisible</span>()
+
+    <span class="comment"># Step 2: YCB visual을 proxy의 자식으로 로드 (physics 없음!)</span>
+    ycb_prim_path = <span class="string">f"{proxy_prim_path}/YCB_Visual"</span>
+    <span class="function">add_reference_to_stage</span>(usd_path, ycb_prim_path)
+    <span class="comment"># NO physics applied to YCB - visual only</span>
+            </div>
+
+            <div style="margin-top: 2rem; text-align: center;">
+                <h4>왜 작동하는가?</h4>
+                <p style="color: #94a3b8; max-width: 800px; margin: 1rem auto;">
+                    RMPFlow는 복잡한 mesh collision shape을 보수적으로 회피합니다.
+                    단순한 box collision (DynamicCuboid)은 정확한 접근이 가능합니다.
+                    <br><br>
+                    <strong style="color: var(--success);">해결책:</strong>
+                    보이지 않는 DynamicCuboid가 physics/collision을 담당하고,
+                    YCB mesh는 시각적 표현만 담당하도록 분리합니다.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Results -->
+    <section id="results">
+        <h2 class="section-title">Final Results</h2>
+        <p class="section-subtitle">모든 객체에서 성공적인 Pick and Place 달성</p>
+
+        <div class="results-grid">
+            <div class="result-card">
+                <div class="object-icon">📦</div>
+                <h4>DynamicCuboid</h4>
+                <p style="color: #94a3b8;">Reference Object</p>
+                <div class="accuracy">7.1mm</div>
+                <div class="status">SUCCESS</div>
+            </div>
+
+            <div class="result-card">
+                <div class="object-icon">🥫</div>
+                <h4>Potted Meat Can</h4>
+                <p style="color: #94a3b8;">YCB 010</p>
+                <div class="accuracy">11.1mm</div>
+                <div class="status">SUCCESS</div>
+            </div>
+
+            <div class="result-card">
+                <div class="object-icon">🐟</div>
+                <h4>Tuna Fish Can</h4>
+                <p style="color: #94a3b8;">YCB 007</p>
+                <div class="accuracy">11.1mm</div>
+                <div class="status">SUCCESS</div>
+            </div>
+
+            <div class="result-card">
+                <div class="object-icon">🧱</div>
+                <h4>Foam Brick</h4>
+                <p style="color: #94a3b8;">YCB 061</p>
+                <div class="accuracy">11.1mm</div>
+                <div class="status">SUCCESS</div>
+            </div>
+        </div>
+
+        <div style="margin-top: 3rem; text-align: center;">
+            <h3>Key Takeaways</h3>
+            <div style="display: flex; gap: 2rem; justify-content: center; flex-wrap: wrap; margin-top: 1.5rem;">
+                <div style="background: rgba(16, 185, 129, 0.1); padding: 1.5rem; border-radius: 12px; max-width: 300px;">
+                    <div style="font-size: 2rem; margin-bottom: 0.5rem;">🎯</div>
+                    <p>그리퍼 초기화가<br>가장 중요한 요소</p>
+                </div>
+                <div style="background: rgba(99, 102, 241, 0.1); padding: 1.5rem; border-radius: 12px; max-width: 300px;">
+                    <div style="font-size: 2rem; margin-bottom: 0.5rem;">📦</div>
+                    <p>Collision Proxy 패턴으로<br>복잡한 mesh 문제 해결</p>
+                </div>
+                <div style="background: rgba(245, 158, 11, 0.1); padding: 1.5rem; border-radius: 12px; max-width: 300px;">
+                    <div style="font-size: 2rem; margin-bottom: 0.5rem;">🤖</div>
+                    <p>RMPFlow는 단순한<br>collision shape 선호</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <p style="margin-bottom: 1rem;">Isaac Sim 4.5 Pick and Place Project</p>
+        <p style="color: #64748b;">
+            GitHub: <a href="https://github.com/scholarchoi-yjchoi/ClaudeCode_PlanMode_PickAndPlace" target="_blank">
+                scholarchoi-yjchoi/ClaudeCode_PlanMode_PickAndPlace
+            </a>
+        </p>
+        <p style="color: #64748b; margin-top: 0.5rem;">
+            Built with NVIDIA Isaac Sim 4.5 | Franka Panda Robot | YCB Dataset
+        </p>
+    </footer>
+
+    <script>
+        // Three.js Hero Animation
+        let scene, camera, renderer, robot, cube, container;
+        let animationPhase = 0;
+        let animationProgress = 0;
+        let isAnimating = false;
+
+        function initHeroScene() {
+            const canvas = document.getElementById('robot-canvas');
+
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(45, canvas.clientWidth / canvas.clientHeight, 0.1, 1000);
+            camera.position.set(4, 3, 4);
+            camera.lookAt(0, 0.5, 0);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+            renderer.setClearColor(0x000000, 0);
+            canvas.appendChild(renderer.domElement);
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0x404040, 2);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(5, 10, 5);
+            scene.add(directionalLight);
+
+            // Ground
+            const groundGeometry = new THREE.PlaneGeometry(10, 10);
+            const groundMaterial = new THREE.MeshStandardMaterial({
+                color: 0x1e1b4b,
+                metalness: 0.3,
+                roughness: 0.8
+            });
+            const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+            ground.rotation.x = -Math.PI / 2;
+            scene.add(ground);
+
+            // Grid
+            const gridHelper = new THREE.GridHelper(10, 20, 0x6366f1, 0x312e81);
+            scene.add(gridHelper);
+
+            // Robot Base
+            const baseGeometry = new THREE.CylinderGeometry(0.15, 0.15, 0.1, 32);
+            const baseMaterial = new THREE.MeshStandardMaterial({ color: 0x333333 });
+            const base = new THREE.Mesh(baseGeometry, baseMaterial);
+            base.position.y = 0.05;
+            scene.add(base);
+
+            // Robot Arm (simplified)
+            robot = new THREE.Group();
+
+            // Link 1
+            const link1Geo = new THREE.CylinderGeometry(0.06, 0.06, 0.4, 16);
+            const linkMaterial = new THREE.MeshStandardMaterial({ color: 0xf5f5f5 });
+            const link1 = new THREE.Mesh(link1Geo, linkMaterial);
+            link1.position.y = 0.3;
+            robot.add(link1);
+
+            // Link 2
+            const link2 = new THREE.Mesh(link1Geo, linkMaterial);
+            link2.position.set(0, 0.5, 0.2);
+            link2.rotation.x = Math.PI / 4;
+            robot.add(link2);
+
+            // End Effector
+            const eeGeometry = new THREE.BoxGeometry(0.12, 0.08, 0.15);
+            const eeMaterial = new THREE.MeshStandardMaterial({ color: 0x6366f1 });
+            const endEffector = new THREE.Mesh(eeGeometry, eeMaterial);
+            endEffector.position.set(0, 0.6, 0.5);
+            robot.add(endEffector);
+
+            // Gripper fingers
+            const fingerGeo = new THREE.BoxGeometry(0.02, 0.06, 0.08);
+            const finger1 = new THREE.Mesh(fingerGeo, new THREE.MeshStandardMaterial({ color: 0x888888 }));
+            finger1.position.set(-0.04, 0.6, 0.58);
+            robot.add(finger1);
+
+            const finger2 = new THREE.Mesh(fingerGeo, new THREE.MeshStandardMaterial({ color: 0x888888 }));
+            finger2.position.set(0.04, 0.6, 0.58);
+            robot.add(finger2);
+
+            scene.add(robot);
+
+            // Pick Cube
+            const cubeGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+            const cubeMaterial = new THREE.MeshStandardMaterial({ color: 0x10b981 });
+            cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
+            cube.position.set(0.8, 0.05, 0.8);
+            scene.add(cube);
+
+            // Container
+            const containerGroup = new THREE.Group();
+            const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x6366f1, transparent: true, opacity: 0.7 });
+
+            // Container walls
+            const wallGeo = new THREE.BoxGeometry(0.3, 0.15, 0.02);
+            const frontWall = new THREE.Mesh(wallGeo, wallMaterial);
+            frontWall.position.set(0, 0.075, 0.14);
+            containerGroup.add(frontWall);
+
+            const backWall = new THREE.Mesh(wallGeo, wallMaterial);
+            backWall.position.set(0, 0.075, -0.14);
+            containerGroup.add(backWall);
+
+            const sideWallGeo = new THREE.BoxGeometry(0.02, 0.15, 0.3);
+            const leftWall = new THREE.Mesh(sideWallGeo, wallMaterial);
+            leftWall.position.set(-0.14, 0.075, 0);
+            containerGroup.add(leftWall);
+
+            const rightWall = new THREE.Mesh(sideWallGeo, wallMaterial);
+            rightWall.position.set(0.14, 0.075, 0);
+            containerGroup.add(rightWall);
+
+            // Container bottom
+            const bottomGeo = new THREE.BoxGeometry(0.3, 0.02, 0.3);
+            const bottom = new THREE.Mesh(bottomGeo, wallMaterial);
+            bottom.position.y = 0.01;
+            containerGroup.add(bottom);
+
+            containerGroup.position.set(0.8, 0, -0.8);
+            container = containerGroup;
+            scene.add(container);
+
+            animateHero();
+        }
+
+        function animateHero() {
+            requestAnimationFrame(animateHero);
+
+            // Gentle rotation
+            robot.rotation.y += 0.002;
+
+            // Bobbing cube
+            cube.position.y = 0.05 + Math.sin(Date.now() * 0.002) * 0.02;
+
+            renderer.render(scene, camera);
+        }
+
+        // Phase Animation
+        let phaseScene, phaseCamera, phaseRenderer;
+        let phaseRobot, phaseCube, phaseContainer;
+        let phaseAnimating = false;
+        let currentPhase = 0;
+
+        function initPhaseAnimation() {
+            const canvas = document.getElementById('phase-animation');
+
+            phaseScene = new THREE.Scene();
+            phaseScene.background = new THREE.Color(0x0f172a);
+
+            phaseCamera = new THREE.PerspectiveCamera(50, canvas.clientWidth / canvas.clientHeight, 0.1, 1000);
+            phaseCamera.position.set(2.5, 2, 2.5);
+            phaseCamera.lookAt(0.5, 0.3, 0);
+
+            phaseRenderer = new THREE.WebGLRenderer({ antialias: true });
+            phaseRenderer.setSize(canvas.clientWidth, canvas.clientHeight);
+            canvas.appendChild(phaseRenderer.domElement);
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0x404040, 2);
+            phaseScene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(5, 10, 5);
+            phaseScene.add(directionalLight);
+
+            // Ground with grid
+            const groundGeometry = new THREE.PlaneGeometry(5, 5);
+            const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x1e293b });
+            const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+            ground.rotation.x = -Math.PI / 2;
+            phaseScene.add(ground);
+
+            const gridHelper = new THREE.GridHelper(5, 10, 0x475569, 0x334155);
+            phaseScene.add(gridHelper);
+
+            // Simplified robot arm
+            phaseRobot = createSimplifiedRobot();
+            phaseScene.add(phaseRobot);
+
+            // Cube
+            const cubeGeometry = new THREE.BoxGeometry(0.08, 0.08, 0.08);
+            const cubeMaterial = new THREE.MeshStandardMaterial({ color: 0x10b981 });
+            phaseCube = new THREE.Mesh(cubeGeometry, cubeMaterial);
+            phaseCube.position.set(0.6, 0.04, 0.6);
+            phaseScene.add(phaseCube);
+
+            // Container
+            phaseContainer = createContainer();
+            phaseContainer.position.set(0.6, 0, -0.6);
+            phaseScene.add(phaseContainer);
+
+            // Labels
+            addLabel("Pick Position", 0.6, 0.15, 0.6);
+            addLabel("Place Position", 0.6, 0.15, -0.6);
+
+            animatePhase();
+        }
+
+        function createSimplifiedRobot() {
+            const group = new THREE.Group();
+
+            // Base
+            const baseGeo = new THREE.CylinderGeometry(0.1, 0.1, 0.08, 32);
+            const baseMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+            const base = new THREE.Mesh(baseGeo, baseMat);
+            base.position.y = 0.04;
+            group.add(base);
+
+            // Arm segments
+            const armMat = new THREE.MeshStandardMaterial({ color: 0xf5f5f5 });
+
+            // Lower arm
+            const lowerArmGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.3, 16);
+            const lowerArm = new THREE.Mesh(lowerArmGeo, armMat);
+            lowerArm.position.y = 0.23;
+            group.add(lowerArm);
+
+            // Upper arm
+            const upperArmGeo = new THREE.CylinderGeometry(0.035, 0.035, 0.3, 16);
+            const upperArm = new THREE.Mesh(upperArmGeo, armMat);
+            upperArm.position.set(0, 0.38, 0.15);
+            upperArm.rotation.x = Math.PI / 4;
+            group.add(upperArm);
+
+            // End effector
+            const eeGeo = new THREE.BoxGeometry(0.08, 0.05, 0.1);
+            const eeMat = new THREE.MeshStandardMaterial({ color: 0x6366f1 });
+            group.endEffector = new THREE.Mesh(eeGeo, eeMat);
+            group.endEffector.position.set(0, 0.45, 0.35);
+            group.add(group.endEffector);
+
+            // Gripper
+            const fingerGeo = new THREE.BoxGeometry(0.015, 0.04, 0.06);
+            const fingerMat = new THREE.MeshStandardMaterial({ color: 0x888888 });
+            group.finger1 = new THREE.Mesh(fingerGeo, fingerMat);
+            group.finger1.position.set(-0.025, 0.45, 0.4);
+            group.add(group.finger1);
+
+            group.finger2 = new THREE.Mesh(fingerGeo, fingerMat);
+            group.finger2.position.set(0.025, 0.45, 0.4);
+            group.add(group.finger2);
+
+            return group;
+        }
+
+        function createContainer() {
+            const group = new THREE.Group();
+            const mat = new THREE.MeshStandardMaterial({ color: 0x6366f1, transparent: true, opacity: 0.6 });
+
+            const wallGeo = new THREE.BoxGeometry(0.2, 0.1, 0.01);
+            const frontWall = new THREE.Mesh(wallGeo, mat);
+            frontWall.position.set(0, 0.05, 0.095);
+            group.add(frontWall);
+
+            const backWall = new THREE.Mesh(wallGeo, mat);
+            backWall.position.set(0, 0.05, -0.095);
+            group.add(backWall);
+
+            const sideGeo = new THREE.BoxGeometry(0.01, 0.1, 0.2);
+            const leftWall = new THREE.Mesh(sideGeo, mat);
+            leftWall.position.set(-0.095, 0.05, 0);
+            group.add(leftWall);
+
+            const rightWall = new THREE.Mesh(sideGeo, mat);
+            rightWall.position.set(0.095, 0.05, 0);
+            group.add(rightWall);
+
+            const bottomGeo = new THREE.BoxGeometry(0.2, 0.01, 0.2);
+            const bottom = new THREE.Mesh(bottomGeo, mat);
+            bottom.position.y = 0.005;
+            group.add(bottom);
+
+            return group;
+        }
+
+        function addLabel(text, x, y, z) {
+            // Simple sprite label would go here
+            // For simplicity, we'll skip actual text rendering in Three.js
+        }
+
+        function animatePhase() {
+            requestAnimationFrame(animatePhase);
+            phaseRenderer.render(phaseScene, phaseCamera);
+        }
+
+        // Animation playback
+        const phasePositions = [
+            { ee: [0.6, 0.4, 0.6], cube: [0.6, 0.04, 0.6], gripper: 0.025 },   // 0: above pick
+            { ee: [0.6, 0.15, 0.6], cube: [0.6, 0.04, 0.6], gripper: 0.025 },  // 1: lower to grasp
+            { ee: [0.6, 0.15, 0.6], cube: [0.6, 0.04, 0.6], gripper: 0.025 },  // 2: wait
+            { ee: [0.6, 0.15, 0.6], cube: [0.6, 0.04, 0.6], gripper: 0.01 },   // 3: close gripper
+            { ee: [0.6, 0.4, 0.6], cube: [0.6, 0.35, 0.6], gripper: 0.01 },    // 4: lift
+            { ee: [0.6, 0.4, -0.6], cube: [0.6, 0.35, -0.6], gripper: 0.01 },  // 5: move to place
+            { ee: [0.6, 0.15, -0.6], cube: [0.6, 0.1, -0.6], gripper: 0.01 },  // 6: lower to place
+            { ee: [0.6, 0.15, -0.6], cube: [0.6, 0.04, -0.6], gripper: 0.025 },// 7: open gripper
+            { ee: [0.6, 0.4, -0.6], cube: [0.6, 0.04, -0.6], gripper: 0.025 }, // 8: lift up
+            { ee: [0.2, 0.4, 0], cube: [0.6, 0.04, -0.6], gripper: 0.025 },    // 9: home
+        ];
+
+        let animationId = null;
+
+        function playAnimation() {
+            if (phaseAnimating) return;
+            phaseAnimating = true;
+            currentPhase = 0;
+            animateToPhase(0);
+        }
+
+        function animateToPhase(phase) {
+            if (phase >= phasePositions.length) {
+                phaseAnimating = false;
+                return;
+            }
+
+            currentPhase = phase;
+            highlightPhaseCard(phase);
+
+            const target = phasePositions[phase];
+            const duration = 800;
+            const startTime = Date.now();
+
+            const startEE = [
+                phaseRobot.endEffector.position.x,
+                phaseRobot.endEffector.position.y,
+                phaseRobot.endEffector.position.z
+            ];
+            const startCube = [
+                phaseCube.position.x,
+                phaseCube.position.y,
+                phaseCube.position.z
+            ];
+            const startGripper = phaseRobot.finger1.position.x;
+
+            function animate() {
+                const elapsed = Date.now() - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                const eased = easeInOutCubic(progress);
+
+                // Animate end effector
+                phaseRobot.endEffector.position.x = startEE[0] + (target.ee[0] - startEE[0]) * eased;
+                phaseRobot.endEffector.position.y = startEE[1] + (target.ee[1] - startEE[1]) * eased;
+                phaseRobot.endEffector.position.z = startEE[2] + (target.ee[2] - startEE[2]) * eased;
+
+                // Animate fingers
+                phaseRobot.finger1.position.x = startGripper + (-target.gripper - startGripper) * eased;
+                phaseRobot.finger1.position.y = phaseRobot.endEffector.position.y;
+                phaseRobot.finger1.position.z = phaseRobot.endEffector.position.z + 0.05;
+
+                phaseRobot.finger2.position.x = -startGripper + (target.gripper + startGripper) * eased;
+                phaseRobot.finger2.position.y = phaseRobot.endEffector.position.y;
+                phaseRobot.finger2.position.z = phaseRobot.endEffector.position.z + 0.05;
+
+                // Animate cube (only if gripped)
+                if (phase >= 4 && phase <= 6) {
+                    phaseCube.position.x = startCube[0] + (target.cube[0] - startCube[0]) * eased;
+                    phaseCube.position.y = startCube[1] + (target.cube[1] - startCube[1]) * eased;
+                    phaseCube.position.z = startCube[2] + (target.cube[2] - startCube[2]) * eased;
+                } else if (phase === 7) {
+                    phaseCube.position.y = startCube[1] + (target.cube[1] - startCube[1]) * eased;
+                }
+
+                if (progress < 1) {
+                    animationId = requestAnimationFrame(animate);
+                } else {
+                    setTimeout(() => animateToPhase(phase + 1), 300);
+                }
+            }
+
+            animate();
+        }
+
+        function easeInOutCubic(t) {
+            return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        }
+
+        function resetAnimation() {
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+            }
+            phaseAnimating = false;
+            currentPhase = 0;
+
+            // Reset positions
+            phaseRobot.endEffector.position.set(0.2, 0.4, 0);
+            phaseRobot.finger1.position.set(-0.025, 0.4, 0.05);
+            phaseRobot.finger2.position.set(0.025, 0.4, 0.05);
+            phaseCube.position.set(0.6, 0.04, 0.6);
+
+            highlightPhaseCard(-1);
+        }
+
+        function highlightPhaseCard(phase) {
+            document.querySelectorAll('.phase-card').forEach((card, index) => {
+                card.classList.toggle('active', index === phase);
+            });
+        }
+
+        // Initialize
+        window.addEventListener('load', () => {
+            initHeroScene();
+            initPhaseAnimation();
+        });
+
+        // Resize handler
+        window.addEventListener('resize', () => {
+            const heroCanvas = document.getElementById('robot-canvas');
+            if (renderer && heroCanvas) {
+                renderer.setSize(heroCanvas.clientWidth, heroCanvas.clientHeight);
+                camera.aspect = heroCanvas.clientWidth / heroCanvas.clientHeight;
+                camera.updateProjectionMatrix();
+            }
+
+            const phaseCanvas = document.getElementById('phase-animation');
+            if (phaseRenderer && phaseCanvas) {
+                phaseRenderer.setSize(phaseCanvas.clientWidth, phaseCanvas.clientHeight);
+                phaseCamera.aspect = phaseCanvas.clientWidth / phaseCanvas.clientHeight;
+                phaseCamera.updateProjectionMatrix();
+            }
+        });
+    </script>
+</body>
+</html>
