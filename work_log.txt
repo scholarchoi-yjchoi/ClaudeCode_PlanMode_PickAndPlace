@@ -791,3 +791,117 @@ Three.js 기반 인터랙티브 3D 프레젠테이션:
 2. DOCX: 기술 문서 형식으로 상세한 내용 정리
 
 ================================================================================
+19. 세션 작업 로그 (2026-01-19 세션 19 - Potted Meat Can 그리퍼 미끄러짐 수정)
+================================================================================
+
+[목표]
+-------------------------------------------------------------------------
+Potted Meat Can이 운반 중 그리퍼에서 미끄러지는 문제 해결
+
+[문제 상황]
+-------------------------------------------------------------------------
+- Potted Meat Can ('1' 키): 운반 중 그리퍼에서 미끄러져 컨테이너에 조기 낙하
+- Tuna Fish Can ('2' 키): 정상 동작
+- Foam Brick ('3' 키): 정상 동작
+
+[원인 분석]
+-------------------------------------------------------------------------
+| 객체 | 무게 | 크기 | 동작 |
+|------|------|------|------|
+| Potted Meat Can | 0.35 kg | 65-70mm | 미끄러짐 |
+| Tuna Fish Can | 0.20 kg | ~35mm | 정상 |
+| Foam Brick | 0.05 kg | 38-50mm | 정상 |
+
+문제: 모든 객체가 기본 마찰력으로 동일한 그리퍼 제어 사용
+- Potted Meat Can은 Foam Brick보다 7배 무거움
+- Tuna Fish Can보다 약 2배 무거움
+- 더 큰 직경으로 더 많은 그립 힘 필요
+
+[해결책: High-Friction Physics Material]
+-------------------------------------------------------------------------
+그리퍼 손가락과 무거운 객체 collision proxy에 고마찰 물리 재질 적용
+
+[구현 내용]
+-------------------------------------------------------------------------
+1. UsdShade import 추가 (line 42)
+   ```python
+   from pxr import UsdLux, UsdGeom, Gf, UsdShade
+   ```
+
+2. YCB_OBJECT_CONFIGS에 grip_friction 파라미터 추가
+   - Potted Meat Can: grip_friction = 2.0 (높은 마찰력)
+   - Tuna Fish Can: grip_friction = 1.0 (표준 마찰력)
+   - Foam Brick: grip_friction = 1.0 (표준 마찰력)
+
+3. 마찰력 재질 헬퍼 함수 구현
+   ```python
+   def create_grip_friction_material(stage, material_path, friction=1.0):
+       """지정된 마찰력으로 physics material 생성"""
+       UsdShade.Material.Define(stage, material_path)
+       material_prim = stage.GetPrimAtPath(material_path)
+       physics_material = UsdPhysics.MaterialAPI.Apply(material_prim)
+       physics_material.CreateStaticFrictionAttr(friction)
+       physics_material.CreateDynamicFrictionAttr(friction)
+       physics_material.CreateRestitutionAttr(0.0)
+       return material_path
+
+   def apply_material_to_prim(stage, prim_path, material_path):
+       """Physics material을 prim에 바인딩"""
+       prim = stage.GetPrimAtPath(prim_path)
+       if prim.IsValid():
+           material = UsdShade.Material.Get(stage, material_path)
+           binding_api = UsdShade.MaterialBindingAPI.Apply(prim)
+           binding_api.Bind(material, UsdShade.Tokens.strongerThanDescendants, "physics")
+           return True
+       return False
+   ```
+
+4. 그리퍼 손가락에 고마찰 재질 적용 (main() 함수)
+   ```python
+   create_grip_friction_material(stage, "/World/Materials/GripperFriction", friction=2.0)
+   apply_material_to_prim(stage, f"{franka_prim_path}/panda_leftfinger", "/World/Materials/GripperFriction")
+   apply_material_to_prim(stage, f"{franka_prim_path}/panda_rightfinger", "/World/Materials/GripperFriction")
+   ```
+
+5. 객체 collision proxy에 마찰 재질 적용 (create_ycb_object() 함수)
+   ```python
+   grip_friction = config.get("grip_friction", 1.0)
+   material_path = f"/World/Materials/Mat_{object_name}_friction"
+   create_grip_friction_material(stage, material_path, friction=grip_friction)
+   apply_material_to_prim(stage, proxy_prim_path, material_path)
+   ```
+
+[버그 수정]
+-------------------------------------------------------------------------
+초기 실행 시 에러 발생:
+```
+Ill-formed SdfPath </World/Materials/010_potted_meat_can_friction>: syntax error
+```
+
+원인: USD SdfPath는 숫자로 시작하는 경로를 허용하지 않음
+해결: Material 경로에 "Mat_" 접두사 추가
+```python
+# 수정 전
+material_path = f"/World/Materials/{object_name}_friction"
+# 수정 후
+material_path = f"/World/Materials/Mat_{object_name}_friction"
+```
+
+[테스트 결과]
+-------------------------------------------------------------------------
+프로그램 정상 실행 확인:
+```
+[INFO] Applied high-friction material to gripper fingers
+[INFO] Created invisible collision proxy at [0.3 0.3 0.3]
+[INFO] Applied friction material (friction=2.0) to collision proxy
+[INFO] Created 'Potted Meat Can' with sibling collision proxy
+Simulation ready!
+```
+
+[기대 효과]
+-------------------------------------------------------------------------
+- Potted Meat Can이 운반 중 미끄러지지 않고 단단히 고정됨
+- 그리퍼가 릴리즈 포인트에서 열릴 때만 객체 낙하
+- Tuna Fish Can, Foam Brick과 동일한 동작 패턴
+
+================================================================================

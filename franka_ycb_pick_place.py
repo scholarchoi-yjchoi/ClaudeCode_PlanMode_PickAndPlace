@@ -39,7 +39,7 @@ import carb
 import carb.input
 import omni.usd
 import omni.appwindow
-from pxr import UsdLux, UsdGeom, Gf
+from pxr import UsdLux, UsdGeom, Gf, UsdShade
 from isaacsim.core.api import World
 from isaacsim.core.api.objects import FixedCuboid, DynamicCuboid, VisualSphere
 from isaacsim.core.api.objects.ground_plane import GroundPlane
@@ -76,6 +76,7 @@ YCB_OBJECT_CONFIGS = {
         "pick_height_offset": 0.02,  # Pick slightly above center
         "spawn_height": 0.35,  # Spawn above platform (will settle on it)
         "spawn_xy": np.array([0.3, 0.3]),
+        "grip_friction": 2.0,  # High friction for heavy object
     },
     "007_tuna_fish_can": {
         "key": "2",
@@ -86,6 +87,7 @@ YCB_OBJECT_CONFIGS = {
         "pick_height_offset": 0.02,  # Pick slightly above center
         "spawn_height": 0.35,  # Spawn above platform
         "spawn_xy": np.array([0.3, 0.3]),
+        "grip_friction": 1.0,  # Standard friction
     },
     "061_foam_brick": {
         "key": "3",
@@ -96,6 +98,7 @@ YCB_OBJECT_CONFIGS = {
         "pick_height_offset": 0.02,  # Pick slightly above center
         "spawn_height": 0.35,  # Spawn above platform
         "spawn_xy": np.array([0.3, 0.3]),
+        "grip_friction": 1.0,  # Standard friction
     },
 }
 
@@ -161,6 +164,30 @@ def setup_lighting() -> None:
     print("[INFO] Distant light added (intensity: 500, angle: 45)")
 
 
+def create_grip_friction_material(stage, material_path: str, friction: float = 1.0):
+    """Create physics material with specified friction for grasping."""
+    UsdShade.Material.Define(stage, material_path)
+    material_prim = stage.GetPrimAtPath(material_path)
+
+    physics_material = UsdPhysics.MaterialAPI.Apply(material_prim)
+    physics_material.CreateStaticFrictionAttr(friction)
+    physics_material.CreateDynamicFrictionAttr(friction)
+    physics_material.CreateRestitutionAttr(0.0)
+
+    return material_path
+
+
+def apply_material_to_prim(stage, prim_path: str, material_path: str):
+    """Bind physics material to a prim."""
+    prim = stage.GetPrimAtPath(prim_path)
+    if prim.IsValid():
+        material = UsdShade.Material.Get(stage, material_path)
+        binding_api = UsdShade.MaterialBindingAPI.Apply(prim)
+        binding_api.Bind(material, UsdShade.Tokens.strongerThanDescendants, "physics")
+        return True
+    return False
+
+
 # =============================================================================
 # Keyboard Input Controller
 # =============================================================================
@@ -199,13 +226,13 @@ class SimulationController:
             elif key_name == "R":
                 self.reset_requested = True
                 print("\n[INFO] 'R' key pressed - Reset requested!")
-            elif key_name == "1":
+            elif key_name == "KEY_1":
                 self.object_change_requested = "010_potted_meat_can"
                 print("\n[INFO] '1' key pressed - Selecting Potted Meat Can")
-            elif key_name == "2":
+            elif key_name == "KEY_2":
                 self.object_change_requested = "007_tuna_fish_can"
                 print("\n[INFO] '2' key pressed - Selecting Tuna Fish Can")
-            elif key_name == "3":
+            elif key_name == "KEY_3":
                 self.object_change_requested = "061_foam_brick"
                 print("\n[INFO] '3' key pressed - Selecting Foam Brick")
         return True
@@ -492,18 +519,21 @@ def _apply_physics_dynamicobject_pattern(prim_path: str, mesh_path: str, mass: f
 
 def create_ycb_object(world: World, object_name: str) -> dict:
     """
-    Create a YCB object using "collision proxy" pattern.
+    Create a YCB object using "sibling collision proxy" pattern.
 
-    The YCB visual mesh is parented to an invisible DynamicCuboid that handles physics.
-    This allows the gripper to approach properly (like it does with DynamicCuboid)
-    while displaying the YCB visual.
+    Structure:
+        /World/YCB_Object_{name}       <- Parent Xform (RigidBody)
+            /CollisionProxy            <- Invisible cube (collision only)
+            /YCB_Visual                <- Visible YCB mesh (visual only)
+
+    This ensures visibility inheritance doesn't hide YCB visual.
 
     Args:
         world: Isaac Sim World instance
         object_name: Key from YCB_OBJECT_CONFIGS (e.g., "010_potted_meat_can")
 
     Returns:
-        dict: {"prim_path": str, "position": np.ndarray, "config": dict, "proxy_cube": DynamicCuboid}
+        dict: {"prim_path": str, "position": np.ndarray, "config": dict}
     """
     config = YCB_OBJECT_CONFIGS[object_name]
 
@@ -511,31 +541,50 @@ def create_ycb_object(world: World, object_name: str) -> dict:
     assets_root = get_assets_root_path()
     usd_path = f"{assets_root}/Isaac/Props/YCB/Axis_Aligned/{config['usd_file']}"
 
-    # Spawn position (same as DynamicCuboid position for consistency)
-    spawn_position = OBJECT_POSITION.copy()  # [0.3, 0.3, 0.3]
+    # Spawn position
+    spawn_position = OBJECT_POSITION.copy()
 
-    # === Step 1: Create invisible DynamicCuboid as collision proxy ===
-    # This cube handles all physics interaction (same as working DynamicCuboid)
-    proxy_prim_path = f"/World/YCB_Proxy_{object_name}"
-    proxy_cube = DynamicCuboid(
-        prim_path=proxy_prim_path,
-        name=f"ycb_proxy_{object_name}",
-        position=spawn_position,
-        scale=np.array([0.06, 0.06, 0.06]),  # 6cm cube (covers most graspable YCB objects)
-        size=1.0,
-        color=np.array([1, 1, 1]),  # White (will be invisible)
-    )
-    world.scene.add(proxy_cube)
-
-    # Make the proxy cube invisible but keep physics
     stage = omni.usd.get_context().get_stage()
+
+    # === Step 1: Create parent Xform with RigidBody ===
+    parent_prim_path = f"/World/YCB_Object_{object_name}"
+    parent_xform = UsdGeom.Xform.Define(stage, parent_prim_path)
+    parent_prim = stage.GetPrimAtPath(parent_prim_path)
+
+    # Apply RigidBody to parent
+    rigid_body_api = UsdPhysics.RigidBodyAPI.Apply(parent_prim)
+    rigid_body_api.CreateRigidBodyEnabledAttr(True)
+    mass_api = UsdPhysics.MassAPI.Apply(parent_prim)
+    mass_api.CreateMassAttr(config['mass'])
+
+    # Set parent position
+    parent_xformable = UsdGeom.Xformable(parent_prim)
+    parent_xformable.AddTranslateOp().Set(Gf.Vec3d(*spawn_position))
+
+    # === Step 2: Create collision proxy as SIBLING child (invisible) ===
+    proxy_prim_path = f"{parent_prim_path}/CollisionProxy"
+    proxy_cube = UsdGeom.Cube.Define(stage, proxy_prim_path)
+    proxy_cube.GetSizeAttr().Set(0.06)  # 6cm cube
+
+    # Apply collision to proxy
     proxy_prim = stage.GetPrimAtPath(proxy_prim_path)
-    imageable = UsdGeom.Imageable(proxy_prim)
-    imageable.MakeInvisible()
+    collision_api = UsdPhysics.CollisionAPI.Apply(proxy_prim)
+    collision_api.CreateCollisionEnabledAttr(True)
+
+    # Make proxy invisible (won't affect sibling YCB)
+    proxy_imageable = UsdGeom.Imageable(proxy_prim)
+    proxy_imageable.MakeInvisible()
     print(f"[INFO] Created invisible collision proxy at {spawn_position}")
 
-    # === Step 2: Load YCB visual as a child of the proxy (no physics) ===
-    ycb_prim_path = f"{proxy_prim_path}/YCB_Visual"
+    # Apply friction material to collision proxy
+    grip_friction = config.get("grip_friction", 1.0)
+    material_path = f"/World/Materials/Mat_{object_name}_friction"
+    create_grip_friction_material(stage, material_path, friction=grip_friction)
+    apply_material_to_prim(stage, proxy_prim_path, material_path)
+    print(f"[INFO] Applied friction material (friction={grip_friction}) to collision proxy")
+
+    # === Step 3: Load YCB visual as SIBLING child (visible) ===
+    ycb_prim_path = f"{parent_prim_path}/YCB_Visual"
 
     print(f"[INFO] Loading YCB visual: {config['display_name']}")
     print(f"[INFO] USD path: {usd_path}")
@@ -548,31 +597,31 @@ def create_ycb_object(world: World, object_name: str) -> dict:
         print(f"[ERROR] Failed to load YCB object from {usd_path}")
         return None
 
-    # Set YCB visual position relative to proxy center (origin)
-    # Small offset may be needed based on YCB mesh center
+    # Ensure YCB is visible (explicit)
+    ycb_imageable = UsdGeom.Imageable(ycb_prim)
+    ycb_imageable.MakeVisible()
+
+    # Center YCB visual at parent origin
     ycb_xform = UsdGeom.Xformable(ycb_prim)
     ycb_xform.ClearXformOpOrder()
-    ycb_xform.AddTranslateOp().Set(Gf.Vec3d(0, 0, 0))  # Centered on proxy
+    ycb_xform.AddTranslateOp().Set(Gf.Vec3d(0, 0, 0))
 
-    # IMPORTANT: Do NOT apply physics to YCB - it's visual only
-    # The proxy cube handles all physics interaction
-
-    print(f"[INFO] Created YCB visual '{config['display_name']}' (visual-only, physics via proxy)")
+    print(f"[INFO] Created '{config['display_name']}' with sibling collision proxy")
 
     return {
-        "prim_path": proxy_prim_path,  # Return proxy path for position tracking
+        "prim_path": parent_prim_path,  # Parent for position tracking
         "ycb_visual_path": ycb_prim_path,
+        "proxy_path": proxy_prim_path,
         "position": spawn_position.copy(),
         "config": config,
         "object_name": object_name,
-        "proxy_cube": proxy_cube,  # For reference
         "bounding_sphere": None,
     }
 
 
 def delete_ycb_object(object_name: str) -> bool:
     """
-    Delete a YCB object (proxy cube + visual) from the stage.
+    Delete a YCB object (parent with proxy + visual) from the stage.
 
     Args:
         object_name: Key from YCB_OBJECT_CONFIGS
@@ -583,21 +632,25 @@ def delete_ycb_object(object_name: str) -> bool:
     stage = omni.usd.get_context().get_stage()
     deleted = False
 
-    # Delete proxy cube (which also deletes the YCB visual child)
-    proxy_path = f"/World/YCB_Proxy_{object_name}"
-    proxy_prim = stage.GetPrimAtPath(proxy_path)
-    if proxy_prim.IsValid():
-        stage.RemovePrim(proxy_path)
-        print(f"[INFO] Deleted YCB proxy + visual at {proxy_path}")
+    # Delete parent (deletes both proxy and visual children)
+    parent_path = f"/World/YCB_Object_{object_name}"
+    parent_prim = stage.GetPrimAtPath(parent_path)
+    if parent_prim.IsValid():
+        stage.RemovePrim(parent_path)
+        print(f"[INFO] Deleted YCB object: {object_name}")
         deleted = True
 
-    # Also try old-style path (for backwards compatibility)
-    old_prim_path = f"/World/YCB_{object_name}"
-    old_prim = stage.GetPrimAtPath(old_prim_path)
-    if old_prim.IsValid():
-        stage.RemovePrim(old_prim_path)
-        print(f"[INFO] Deleted old YCB object at {old_prim_path}")
-        deleted = True
+    # Also try old-style paths (for backwards compatibility)
+    old_paths = [
+        f"/World/YCB_Proxy_{object_name}",
+        f"/World/YCB_{object_name}",
+    ]
+    for old_path in old_paths:
+        old_prim = stage.GetPrimAtPath(old_path)
+        if old_prim.IsValid():
+            stage.RemovePrim(old_path)
+            print(f"[INFO] Deleted old YCB object at {old_path}")
+            deleted = True
 
     return deleted
 
@@ -761,6 +814,14 @@ def main():
     )
     my_world.scene.add(my_franka)
     print(f"[INFO] Franka robot added at {ROBOT_POSITION}")
+
+    # Create and apply high-friction material to gripper fingers
+    franka_prim_path = "/World/Franka"
+    stage = omni.usd.get_context().get_stage()
+    create_grip_friction_material(stage, "/World/Materials/GripperFriction", friction=2.0)
+    apply_material_to_prim(stage, f"{franka_prim_path}/panda_leftfinger", "/World/Materials/GripperFriction")
+    apply_material_to_prim(stage, f"{franka_prim_path}/panda_rightfinger", "/World/Materials/GripperFriction")
+    print("[INFO] Applied high-friction material to gripper fingers")
 
     # 5. Support Platform for YCB objects (disabled - using collision proxy approach now)
     # The proxy cube handles physics at the same position as DynamicCuboid
@@ -927,6 +988,10 @@ def main():
                 my_world.reset()
                 my_controller.reset()
 
+                # Step physics to let objects settle (same as initial setup)
+                for _ in range(50):
+                    my_world.step(render=True)
+
                 # Reset obstacle manager state
                 if obstacle_manager:
                     obstacle_manager.reset()
@@ -936,7 +1001,7 @@ def main():
                 verifier.initialize()  # Re-initialize verifier after reset
                 verifier.last_phase = -1  # Reset phase tracking
 
-                # Re-calculate pick position
+                # Re-calculate pick position (AFTER physics settled)
                 object_position = verifier.get_object_position().copy()
                 if current_object_name is not None and current_object_name in YCB_OBJECT_CONFIGS:
                     config = YCB_OBJECT_CONFIGS[current_object_name]
@@ -951,6 +1016,25 @@ def main():
                 task_completed = False
                 task_started = False
                 step_count = 0
+
+                # Clear start request so user must press 'S' again
+                sim_controller.start_requested = False
+                sim_controller.reset_requested = False
+
+                # Show ready message (same as initial startup)
+                print("\n" + "=" * 60)
+                print("Simulation ready!")
+                print("  - Press 'S' key to start the Pick and Place task")
+                if USE_YCB_OBJECTS:
+                    print("  - Press '1' for Potted Meat Can (65-70mm)")
+                    print("  - Press '2' for Tuna Fish Can (~35mm)")
+                    print("  - Press '3' for Foam Brick (38-50mm)")
+                print("  - Press 'R' to reset")
+                if current_object_name is not None and current_object_name in YCB_OBJECT_CONFIGS:
+                    print(f"Current object: {YCB_OBJECT_CONFIGS[current_object_name]['display_name']}")
+                else:
+                    print("Current object: DynamicCuboid (Blue Cube)")
+                print("=" * 60 + "\n")
 
             # Wait for user to press 'S' or Play button (auto-started in headless mode)
             if not task_started:
