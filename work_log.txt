@@ -984,3 +984,27 @@ Three.js 기반 인터랙티브 3D 프레젠테이션:
 2. DOCX: SDK/API 문서 스타일의 Technical Report로 상세한 내용 정리
 
 ================================================================================
+21. 세션 작업 로그 (2026-01-19 세션 21 - 문서 폴더 재구성)
+================================================================================
+
+[작업] documents/260119 폴더 세션별 재구성 및 Git 커밋
+-------------------------------------------------------------------------
+- 기존 documents/260119/ 폴더를 세션별로 분리
+- 새로운 구조:
+  * documents/260119_1/: 세션 1 작업물
+    - 260119_ClaudeCode_PlanMode_PickAndPlace (대화 로그)
+    - 260119_Isaac_Sim_Pick_and_Place_Technical_Report_v3.docx
+    - 260119_project_presentation_v3.html
+    - 260119_work_log.txt
+  * documents/260119_2/: 세션 2 작업물
+    - 260119_2_ClaudeCode_PlanMode_PickAndPlace (대화 로그)
+- project_presentation_v3.html을 루트에서 documents/260119_1/로 이동
+
+[Git 커밋]
+-------------------------------------------------------------------------
+1f03990 Reorganize documents/260119 into session-based subfolders
+  - documents/260119/ → documents/260119_1/ (session 1 work)
+  - project_presentation_v3.html → documents/260119_1/
+  - Add session 2 conversation log to documents/260119_2/
+
+================================================================================
