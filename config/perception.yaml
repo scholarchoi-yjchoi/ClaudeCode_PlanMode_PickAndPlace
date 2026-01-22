@@ -1,0 +1,35 @@
+# Perception Pipeline Configuration
+
+# Camera settings
+camera:
+  fx: 395.26
+  fy: 395.26
+  cx: 256.0
+  cy: 256.0
+  resolution: [512, 512]
+
+# YOLO settings
+yolo:
+  model_path: "yolov8n-seg.pt"
+  confidence_threshold: 0.5
+  device: "cuda:0"
+
+# Depth processing
+depth:
+  min_depth: 0.1
+  max_depth: 2.0
+  iqr_multiplier: 1.5
+  use_morphology: true
+
+# 6DOF estimation
+6dof:
+  min_points: 10
+  use_gravity_constraint: true
+  use_model_based: false
+  reference_models_path: "assets/models"
+
+# Class name mapping for YCB objects
+class_mapping:
+  potted_meat_can: "PottedMeatCan"
+  tuna_fish_can: "TunaFishCan"
+  foam_brick: "FoamBrick"
